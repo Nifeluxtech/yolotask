@@ -1,0 +1,16 @@
+{
+  "name": "yolotask",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "YOLOTASK task-to-earn and digital promotion marketplace by Nifelux",
+  "scripts": {
+    "dev": "python3 -m http.server 4173 --directory .",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check src/client/app.js && node --check src/client/api.js && node --check src/server/supabase.js",
+    "audit": "node tests/audit.test.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0"
+  }
+}
