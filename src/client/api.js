@@ -5,9 +5,12 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest(path, options = {}) {
+  const saved = localStorage.getItem('yolotask_session');
+  let accessToken = '';
+  try { accessToken = JSON.parse(saved || '{}').access_token || ''; } catch {}
   const response = await fetch(`/api/${path.replace(/^\//, '')}`, {
     method: options.method || 'GET',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}), ...(options.headers || {}) },
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
   });
   const payload = await response.json().catch(() => ({}));
