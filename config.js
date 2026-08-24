@@ -1,5 +1,8 @@
+// Public browser configuration only. Never put service-role or secret keys here.
+// For local setup, replace these placeholders with the public values from Supabase
+// and Paystack. See config.template.js and docs/DEPLOYMENT.md.
 window.YOLOTASK_CONFIG = {
-  supabaseUrl: 'https://dqfpeeakobucyaeiqguc.supabase.co',
-  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZnBlZWFrb2J1Y3lhZWlxZ3VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc1ODQ3OTUsImV4cCI6MjEwMzE2MDc5NX0.-JStEsWIYOgL0qlP0NB2TPGJzTrk7ULW96qCwh20FNw',
-  paystackPublicKey: 'pk_live_cd8547f6b4270551729c247d8d31635691c39a08'
+  supabaseUrl: '',
+  supabaseAnonKey: '',
+  paystackPublicKey: ''
 };

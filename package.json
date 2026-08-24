@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "description": "YOLOTASK task-to-earn and digital promotion marketplace by Nifelux",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "dev": "python3 -m http.server 4173 --directory .",
+    "dev": "node src/server/dev-server.js",
     "test": "node --test tests/*.test.js",
-    "check": "node --check src/client/app.js && node --check src/client/api.js && node --check src/server/supabase.js",
+    "check": "node --check src/client/app.js && node --check src/client/auth-page.js && node --check src/client/admin-page.js && node --check src/client/api.js && node --check src/server/dev-server.js && node --check src/server/supabase.js && node --check api/auth.js",
     "audit": "node tests/audit.test.js"
   },
   "dependencies": {

@@ -6,3 +6,8 @@ node_modules/
 .DS_Store
 coverage/
 *.log
+
+# Local browser-config overrides. The tracked config.js is a safe public placeholder;
+# never put service-role, Paystack secret, or database credentials in browser files.
+config.local.js
+config.override.js
