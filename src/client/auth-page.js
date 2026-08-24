@@ -43,7 +43,7 @@ form?.addEventListener('submit', async event => {
     if (page === 'login') {
       window.location.href = result.dashboard_path || '/earner/index.html';
     } else {
-      show(notice, 'Account created. Check your email if confirmation is enabled, then log in to continue.', 'success');
+      show(notice, 'Account created. You can now log in immediately.', 'success');
       setTimeout(() => { window.location.href = '/auth/login.html'; }, 800);
     }
   } catch (err) { show(error, err.message || 'Unable to complete this request.'); if (submit) { submit.disabled = false; submit.textContent = page === 'login' ? 'Continue ↗' : 'Create account ↗'; } }
