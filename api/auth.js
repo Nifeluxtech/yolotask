@@ -1,38 +1,60 @@
-import { adminClient } from '../src/server/supabase.js';
+import { randomBytes } from 'node:crypto';
+import { adminClient, requireUser } from '../src/server/supabase.js';
 import { ok, fail, body } from '../src/server/http.js';
 import { email, requiredString, oneOf, interests } from '../src/server/validation.js';
 
 const safeNewUserRole = role => role === 'advertiser' ? 'advertiser' : 'earner';
+const makeReferralCode = () => randomBytes(4).toString('hex').toUpperCase();
 
-async function ensureProfile(user) {
+async function ensureProfile(user, details = {}) {
+  const metadata = user.user_metadata || {};
+  const hasRegistrationDetails = Object.keys(details).length > 0;
+  const role = hasRegistrationDetails ? safeNewUserRole(details.role) : undefined;
+  const fullName = details.full_name || metadata.full_name || 'New member';
+  const gender = details.gender || 'prefer_not_to_say';
   const { data: existing, error: lookupError } = await adminClient
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .maybeSingle();
   if (lookupError) throw lookupError;
-  if (existing) return existing;
 
-  // Never create an administrator from browser-controlled metadata. A missing
-  // profile is repaired as earner/advertiser only; administrator access must
-  // be granted separately by a trusted database operator.
-  const metadata = user.user_metadata || {};
-  const role = safeNewUserRole(metadata.role);
-  const { data: created, error: createError } = await adminClient
-    .from('profiles')
-    .upsert({
-      id: user.id,
-      email: user.email,
-      full_name: metadata.full_name || 'New member',
-      role,
-      gender: 'prefer_not_to_say'
-    }, { onConflict: 'id' })
-    .select()
-    .single();
-  if (createError) throw new Error('Your account profile is missing. Apply the YOLOTASK SQL package in Supabase, then try again.');
+  let profile = existing;
+  if (profile && (hasRegistrationDetails || !profile.referral_code)) {
+    const changes = { referral_code: profile.referral_code || makeReferralCode() };
+    if (hasRegistrationDetails) Object.assign(changes, { email: user.email, full_name: fullName, role, gender });
+    const { data: updated, error: updateError } = await adminClient
+      .from('profiles')
+      .update(changes)
+      .eq('id', user.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+    profile = updated;
+  }
 
-  await adminClient.from('wallets').upsert({ profile_id: user.id }, { onConflict: 'profile_id' });
-  return created;
+  if (!profile) {
+    const { data: created, error: createError } = await adminClient
+      .from('profiles')
+      .insert({
+        id: user.id,
+        email: user.email,
+        full_name: fullName,
+        role: role || safeNewUserRole(metadata.role),
+        gender,
+        referral_code: makeReferralCode()
+      })
+      .select()
+      .single();
+    if (createError) throw new Error(`Your account profile could not be created: ${createError.message}`);
+    profile = created;
+  }
+
+  const { error: walletError } = await adminClient
+    .from('wallets')
+    .upsert({ profile_id: user.id }, { onConflict: 'profile_id' });
+  if (walletError) throw new Error(`Your account wallet could not be created: ${walletError.message}`);
+  return profile;
 }
 
 export default async function handler(req, res) {
@@ -54,17 +76,26 @@ export default async function handler(req, res) {
         email_confirm: true,
         user_metadata: { full_name, role }
       });
-      if (error) throw error;
-      const profile = await ensureProfile(data.user);
-      const { error: profileError } = await adminClient.from('profiles').update({ email: mail, full_name, role, gender }).eq('id', data.user.id);
-      if (profileError) throw profileError;
+      if (error || !data?.user) throw error || new Error('User creation failed.');
+
+      const profile = await ensureProfile(data.user, { full_name, role, gender });
       if (selected.length) {
         const { data: rows, error: interestError } = await adminClient.from('interests').select('id,name').in('name', selected);
         if (interestError) throw interestError;
-        if (rows.length !== selected.length) throw new Error('One or more interests are unavailable.');
-        await adminClient.from('profile_interests').insert(rows.map(row => ({ profile_id: data.user.id, interest_id: row.id })));
+        if (!rows || rows.length !== selected.length) throw new Error('One or more interests are unavailable.');
+        const { error: profileInterestError } = await adminClient.from('profile_interests').insert(rows.map(row => ({ profile_id: data.user.id, interest_id: row.id })));
+        if (profileInterestError) throw profileInterestError;
       }
-      return ok(res, { user: { ...profile, email: mail, full_name, role, gender }, requires_email_confirmation: false });
+
+      const { data: signInData, error: signInError } = await adminClient.auth.signInWithPassword({ email: mail, password });
+      if (signInError) throw signInError;
+      const dashboard_path = profile.role === 'advertiser' ? '/advertiser/index.html' : '/earner/index.html';
+      return ok(res, {
+        user: profile,
+        session: signInData.session,
+        requires_email_confirmation: false,
+        dashboard_path
+      });
     }
 
     if (action === 'login' && req.method === 'POST') {
@@ -73,14 +104,19 @@ export default async function handler(req, res) {
         email: email(input.email),
         password: requiredString(input.password, 'Password', 128)
       });
-      if (error || !data.user) throw Object.assign(new Error('Email or password is incorrect.'), { status: 401 });
+      if (error || !data?.user) throw Object.assign(new Error('Email or password is incorrect.'), { status: 401 });
       const profile = await ensureProfile(data.user);
       const dashboard_path = profile.role === 'admin' ? '/admin/index.html' : profile.role === 'advertiser' ? '/advertiser/index.html' : '/earner/index.html';
       return ok(res, { user: profile, session: data.session, dashboard_path });
     }
 
+    if (action === 'session' && req.method === 'GET') {
+      const { authUser, profile } = await requireUser(req);
+      const dashboard_path = profile.role === 'admin' ? '/admin/index.html' : profile.role === 'advertiser' ? '/advertiser/index.html' : '/earner/index.html';
+      return ok(res, { user: profile, auth_user_id: authUser.id, dashboard_path });
+    }
+
     if (action === 'profile' && req.method === 'PATCH') {
-      const { requireUser } = await import('../src/server/supabase.js');
       const { profile } = await requireUser(req, ['earner', 'advertiser']);
       const input = await body(req);
       const changes = {};
@@ -90,7 +126,8 @@ export default async function handler(req, res) {
       if (error) throw error;
       if (input.interests !== undefined) {
         const selected = interests(input.interests, profile.role === 'earner' ? 3 : 0);
-        const { data: rows } = await adminClient.from('interests').select('id,name').in('name', selected);
+        const { data: rows, error: rowError } = await adminClient.from('interests').select('id,name').in('name', selected);
+        if (rowError) throw rowError;
         await adminClient.from('profile_interests').delete().eq('profile_id', profile.id);
         if (rows?.length) await adminClient.from('profile_interests').insert(rows.map(row => ({ profile_id: profile.id, interest_id: row.id })));
       }
