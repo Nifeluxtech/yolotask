@@ -1,0 +1,7 @@
+import { createClient } from '@supabase/supabase-js';
+const url=process.env.SUPABASE_URL;
+const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!url || !serviceKey) console.warn('Server Supabase credentials are not configured.');
+export const adminClient = url && serviceKey ? createClient(url, serviceKey, { auth:{ autoRefreshToken:false, persistSession:false } }) : null;
+export async function requireUser(req, allowedRoles=[]) { if (!adminClient) throw Object.assign(new Error('Supabase server configuration is missing.'),{status:500}); const token=(req.headers.authorization||'').replace(/^Bearer\s+/i,''); if (!token) throw Object.assign(new Error('Authentication required.'),{status:401}); const {data,error}=await adminClient.auth.getUser(token); if (error || !data.user) throw Object.assign(new Error('Authentication required.'),{status:401}); const {data:profile,error:profileError}=await adminClient.from('profiles').select('*').eq('id',data.user.id).single(); if (profileError || !profile) throw Object.assign(new Error('Profile not found.'),{status:403}); if (allowedRoles.length && !allowedRoles.includes(profile.role)) throw Object.assign(new Error('You are not authorized for this action.'),{status:403}); return {authUser:data.user, profile}; }
+export async function rpc(name, args={}) { if (!adminClient) throw new Error('Supabase server configuration is missing.'); const result=await adminClient.rpc(name,args); if(result.error) throw result.error; return result.data; }

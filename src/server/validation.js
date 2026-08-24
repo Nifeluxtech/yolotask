@@ -1,0 +1,5 @@
+export function requiredString(value, field, max=5000) { if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} is required.`); if (value.length > max) throw new Error(`${field} is too long.`); return value.trim(); }
+export function positiveInt(value, field, max=1000000000) { const n=Number(value); if (!Number.isInteger(n) || n < 1 || n > max) throw new Error(`${field} must be a positive whole number.`); return n; }
+export function oneOf(value, field, choices) { if (!choices.includes(value)) throw new Error(`${field} is invalid.`); return value; }
+export function email(value) { const normalized=requiredString(value,'Email',254).toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new Error('Email is invalid.'); return normalized; }
+export function interests(value, minimum=0) { if (!Array.isArray(value) || value.length < minimum || value.length > 100) throw new Error(`Select at least ${minimum} interests.`); return [...new Set(value.map(x=>requiredString(x,'Interest',120)))]; }
