@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { adminClient, requireUser } from '../src/server/supabase.js';
+import { adminClient, authClient, requireUser } from '../src/server/supabase.js';
 import { ok, fail, body } from '../src/server/http.js';
 import { email, requiredString, oneOf, interests } from '../src/server/validation.js';
 
@@ -50,10 +50,8 @@ async function ensureProfile(user, details = {}) {
     profile = created;
   }
 
-  const { error: walletError } = await adminClient
-    .from('wallets')
-    .upsert({ profile_id: user.id }, { onConflict: 'profile_id' });
-  if (walletError) throw new Error(`Your account wallet could not be created: ${walletError.message}`);
+  const { data: wallet, error: walletError } = await adminClient.rpc('ensure_wallet', { p_profile_id: user.id });
+  if (walletError || !wallet) throw new Error(`Your account wallet could not be created: ${walletError?.message || 'wallet repair returned no row'}`);
   return profile;
 }
 
@@ -62,6 +60,7 @@ export default async function handler(req, res) {
     const action = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('action') || 'session';
 
     if (action === 'register' && req.method === 'POST') {
+      if (!adminClient || !authClient) throw Object.assign(new Error('Supabase server configuration is missing.'), { status: 500 });
       const input = await body(req);
       const mail = email(input.email);
       const password = requiredString(input.password, 'Password', 128);
@@ -87,7 +86,7 @@ export default async function handler(req, res) {
         if (profileInterestError) throw profileInterestError;
       }
 
-      const { data: signInData, error: signInError } = await adminClient.auth.signInWithPassword({ email: mail, password });
+      const { data: signInData, error: signInError } = await authClient.auth.signInWithPassword({ email: mail, password });
       if (signInError) throw signInError;
       const dashboard_path = profile.role === 'advertiser' ? '/advertiser/index.html' : '/earner/index.html';
       return ok(res, {
@@ -99,8 +98,9 @@ export default async function handler(req, res) {
     }
 
     if (action === 'login' && req.method === 'POST') {
+      if (!authClient) throw Object.assign(new Error('Supabase server configuration is missing.'), { status: 500 });
       const input = await body(req);
-      const { data, error } = await adminClient.auth.signInWithPassword({
+      const { data, error } = await authClient.auth.signInWithPassword({
         email: email(input.email),
         password: requiredString(input.password, 'Password', 128)
       });
