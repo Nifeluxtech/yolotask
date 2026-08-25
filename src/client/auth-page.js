@@ -39,7 +39,7 @@ form?.addEventListener('submit', async event => {
       ? { email: data.get('email'), password: data.get('password') }
       : { email: data.get('email'), password: data.get('password'), full_name: data.get('full_name'), role, gender: role === 'earner' ? data.get('gender') : 'prefer_not_to_say', interests: role === 'earner' ? selected : [] };
     const result = await apiRequest(`auth?action=${page}`, { method:'POST', body:payload });
-    if (result.session) localStorage.setItem('yolotask_session', JSON.stringify(result.session));
+    if (result.session) localStorage.setItem('yolotask_session', JSON.stringify({ ...result.session, profile: result.user }));
     if (page === 'login') {
       window.location.href = result.dashboard_path || '/earner/index.html';
     } else {

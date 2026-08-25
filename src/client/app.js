@@ -10,7 +10,14 @@ const esc = (value = '') => String(value).replace(/[&<>'"]/g, char => ({'&':'&am
 const money = (value = 0) => `₦${Number(value || 0).toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
 const initials = (name = 'YO') => name.split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase();
 function toast(message, type = 'success') { const node = document.createElement('div'); node.className = `toast ${type === 'error' ? 'error' : ''}`; node.textContent = message; document.querySelector('#toast-region').append(node); setTimeout(() => node.remove(), 4200); }
-function navigate(view) { state.activeView = view; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function navigate(view, options = {}) {
+  state.activeView = view;
+  document.body.dataset.view = view;
+  const nextPath = pagePath(view);
+  if (options.syncUrl !== false && window.location.pathname !== nextPath) history.pushState({ view }, '', nextPath);
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 function openModal(title, body) { const node = document.createElement('div'); node.className = 'modal-backdrop'; node.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h3>${title}</h3><button class="close" aria-label="Close">×</button></div>${body}</div>`; node.querySelector('.close').onclick = () => node.remove(); node.onclick = e => { if (e.target === node) node.remove(); }; document.body.append(node); return node; }
 
 
@@ -69,5 +76,25 @@ function reputationView() { return `<div class="page-title"><div class="section-
 function analyticsView() { return `<div class="page-title"><div class="section-kicker">Performance</div><h1 style="font-size:2.5rem">Campaign analytics</h1><p>Understand reach, completion, approval, and spend across your promotion campaigns.</p></div><div class="metric-grid">${metric('Workers reached','0','Across live campaigns')+metric('Completion rate','—','Awaiting activity')+metric('Approval rate','—','Awaiting reviews')+metric('Wallet spend',money(0),'Ledger tracked')}</div><section class="card panel" style="margin-top:18px">${empty('Analytics will appear here','Launch a campaign and approved task activity will populate this workspace.')}</section>`; }
 
 const saved = localStorage.getItem('yolotask_session');
-if (saved) { try { const session = JSON.parse(saved); if (session.user) { state.user = session.user; state.role = session.user.role || 'earner'; } } catch {} }
+if (saved) {
+  try {
+    const session = JSON.parse(saved);
+    const profile = session.profile || session.user_profile || (session.user?.role ? session.user : null);
+    const authUser = session.user;
+    if (profile) {
+      state.user = profile;
+      state.role = profile.role || profile.user_metadata?.role || 'earner';
+    } else if (authUser) {
+      state.user = authUser;
+      state.role = authUser.role || authUser.user_metadata?.role || 'earner';
+    }
+  } catch {}
+}
+window.addEventListener('popstate', () => {
+  const file = window.location.pathname.split('/').pop() || 'index.html';
+  const view = file.replace(/\.html$/, '') === 'index' ? 'overview' : file.replace(/\.html$/, '');
+  state.activeView = view;
+  document.body.dataset.view = view;
+  render();
+});
 if (document.body.dataset.authShell !== 'true') render();
