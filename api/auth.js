@@ -75,7 +75,13 @@ export default async function handler(req, res) {
         email_confirm: true,
         user_metadata: { full_name, role }
       });
-      if (error || !data?.user) throw error || new Error('User creation failed.');
+      if (error || !data?.user) {
+        console.error('YOLOTASK Auth user creation failed:', { code: error?.code, status: error?.status, message: error?.message });
+        if (error?.message === 'Database error creating new user') {
+          throw new Error('Registration database setup is incomplete. Apply 012_role_enum_patch.sql, wait for it to commit, then apply 016_registration_trigger_hardening.sql.');
+        }
+        throw error || new Error('User creation failed.');
+      }
 
       const profile = await ensureProfile(data.user, { full_name, role, gender });
       if (selected.length) {
