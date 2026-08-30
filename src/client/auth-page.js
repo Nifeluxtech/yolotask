@@ -1,6 +1,5 @@
 import { apiRequest } from './api.js';
 
-const interests = ['Affiliate Marketing','Content Creator','Influencer','Social Media Marketing','Digital Marketing','Online Seller','Fashion','Freelancing','Graphic Design','Web Development','Video Editing','Blogging','YouTube','TikTok','Instagram','Technology','AI','Online Courses','Education','Job Updates','Business Opportunities','Side Hustle Updates','Dropshipping','E-commerce','Digital Products','Agriculture','Food Business','Beauty','Travel','Events','Music Promotion','Affiliate Offers','Referral Marketing','Community Management','Startup','Entrepreneur','Small Business Owner'];
 const page = document.body.dataset.authPage || 'login';
 const form = document.querySelector('#auth-form');
 const error = document.querySelector('#auth-error');
@@ -13,7 +12,20 @@ const show = (node, message, kind='error') => { if (!node) return; node.textCont
 const hide = node => { if (node) node.hidden = true; };
 const esc = value => String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
-if (interestOptions) interestOptions.innerHTML = interests.map(name => `<label class="interest"><input type="checkbox" name="interests" value="${esc(name)}"><span>${esc(name)}</span></label>`).join('');
+async function loadInterestOptions() {
+  if (!interestOptions) return;
+  interestOptions.innerHTML = '<p class="muted">Loading interests…</p>';
+  try {
+    const result = await apiRequest('auth?action=interests');
+    const names = result.interests || [];
+    interestOptions.innerHTML = names.length
+      ? names.map(name => `<label class="interest"><input type="checkbox" name="interests" value="${esc(name)}"><span>${esc(name)}</span></label>`).join('')
+      : '<p class="muted">No interests are configured yet. Contact support to continue.</p>';
+  } catch {
+    interestOptions.innerHTML = '<p class="muted">Unable to load interests. Refresh the page to try again.</p>';
+  }
+}
+loadInterestOptions();
 
 function syncRoleFields() {
   if (!roleSelect || !earnerFields) return;
