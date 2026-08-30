@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { adminClient, authClient, requireUser } from '../src/server/supabase.js';
 import { ok, fail, body } from '../src/server/http.js';
 import { email, requiredString, oneOf, interests } from '../src/server/validation.js';
+import { enforceRateLimit } from '../src/server/rate-limit.js';
 
 const safeNewUserRole = role => role === 'advertiser' ? 'advertiser' : 'earner';
 const makeReferralCode = () => randomBytes(4).toString('hex').toUpperCase();
@@ -59,8 +60,22 @@ export default async function handler(req, res) {
   try {
     const action = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('action') || 'session';
 
+    if (action === 'interests' && req.method === 'GET') {
+      if (!adminClient) throw Object.assign(new Error('Supabase server configuration is missing.'), { status: 500 });
+      const { data, error } = await adminClient
+        .from('interests')
+        .select('name,is_active,interest_categories(name,sort_order,is_active)')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      if (error) throw error;
+      const rows = (data || []).filter(row => row.interest_categories?.is_active !== false);
+      rows.sort((a, b) => (a.interest_categories?.sort_order ?? 999) - (b.interest_categories?.sort_order ?? 999) || a.name.localeCompare(b.name));
+      return ok(res, { interests: rows.map(row => row.name) });
+    }
+
     if (action === 'register' && req.method === 'POST') {
       if (!adminClient || !authClient) throw Object.assign(new Error('Supabase server configuration is missing.'), { status: 500 });
+      await enforceRateLimit(req, 'auth:register');
       const input = await body(req);
       const mail = email(input.email);
       const password = requiredString(input.password, 'Password', 128);
@@ -105,6 +120,7 @@ export default async function handler(req, res) {
 
     if (action === 'login' && req.method === 'POST') {
       if (!authClient) throw Object.assign(new Error('Supabase server configuration is missing.'), { status: 500 });
+      await enforceRateLimit(req, 'auth:login');
       const input = await body(req);
       const { data, error } = await authClient.auth.signInWithPassword({
         email: email(input.email),
