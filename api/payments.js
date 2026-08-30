@@ -82,7 +82,9 @@ export default async function handler(req, res) {
         })
       });
       const payload = await response.json();
-      if (!response.ok || !payload.status) throw new Error('Payment initialization failed.');
+      if (!response.ok || !payload.status) {
+        throw new Error(payload?.message || 'Payment initialization failed.');
+      }
       await adminClient.from('payment_intents').insert({
         profile_id: profile.id,
         reference,
@@ -102,7 +104,9 @@ export default async function handler(req, res) {
         headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` }
       });
       const payload = await response.json();
-      if (!response.ok || payload.data?.status !== 'success') throw new Error('Payment could not be verified.');
+      if (!response.ok || payload.data?.status !== 'success') {
+        throw new Error(payload?.message || 'Payment could not be verified.');
+      }
       const { data: intent } = await adminClient
         .from('payment_intents')
         .select('*')
