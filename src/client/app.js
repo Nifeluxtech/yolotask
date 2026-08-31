@@ -116,4 +116,30 @@ window.addEventListener('popstate', () => {
   document.body.dataset.view = view;
   render();
 });
-if (document.body.dataset.authShell !== 'true') render();
+
+// Paystack redirects the browser back to callback_url after checkout (see
+// api/payments.js). That's a best-effort signal only — the user can close the
+// tab or lose connection before the redirect completes — so the webhook
+// (action=webhook) is the authoritative settlement path and this is a
+// same-session convenience that just shows the result sooner when it works.
+async function handlePaymentReturn() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('payment') !== 'verify') return;
+  const reference = params.get('reference');
+  history.replaceState({}, '', window.location.pathname);
+  if (!reference) return;
+  toast('Confirming your payment…');
+  try {
+    await apiRequest('payments?action=verify', { method: 'POST', body: { reference } });
+    try {
+      const result = await apiRequest('auth?action=session');
+      if (result.user) { state.user = result.user; state.role = result.user.role || state.role; }
+    } catch {}
+    toast('Payment verified. Your account is ready.');
+  } catch (error) {
+    toast(error.message || 'We could not verify that payment. If you were charged, contact support.', 'error');
+  }
+  render();
+}
+
+if (document.body.dataset.authShell !== 'true') { render(); handlePaymentReturn(); }
