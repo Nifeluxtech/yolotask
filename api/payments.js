@@ -11,10 +11,13 @@ async function rawBody(req) {
 }
 
 function verifyPaystackSignature(rawText, signatureHeader) {
-  if (!process.env.PAYSTACK_WEBHOOK_SECRET) {
-    throw Object.assign(new Error('Webhook is not configured.'), { status: 500 });
+  // Paystack has no separate webhook-signing secret — per their docs, the
+  // x-paystack-signature header is HMAC-SHA512 of the raw body keyed with
+  // your regular secret key (the same one used for API calls).
+  if (!process.env.PAYSTACK_SECRET_KEY) {
+    throw Object.assign(new Error('Paystack is not configured.'), { status: 500 });
   }
-  const expected = createHmac('sha512', process.env.PAYSTACK_WEBHOOK_SECRET).update(rawText).digest('hex');
+  const expected = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(rawText).digest('hex');
   const signature = typeof signatureHeader === 'string' ? signatureHeader : '';
   const signatureBuffer = Buffer.from(signature, 'utf8');
   const expectedBuffer = Buffer.from(expected, 'utf8');
@@ -66,6 +69,11 @@ export default async function handler(req, res) {
       const input = await body(req);
       const amount = profile.role === 'earner' ? 1000 : positiveInt(input.amount, 'Amount');
       const reference = `YOTO-${profile.id.slice(0, 8)}-${Date.now()}`;
+      // Must be a real page that loads app.js — /app doesn't exist in this
+      // site's file-based routing, which is why redirect-back landed nowhere
+      // before. app.js reads ?payment=verify&reference=... on load and calls
+      // action=verify itself; see handlePaymentReturn() in src/client/app.js.
+      const returnPath = profile.role === 'earner' ? '/earner/index.html' : '/advertiser/wallet.html';
       const response = await fetch('https://api.paystack.co/transaction/initialize', {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' },
@@ -73,7 +81,7 @@ export default async function handler(req, res) {
           email: profile.email,
           amount: amount * 100,
           reference,
-          callback_url: `${process.env.APP_URL}/app?payment=verify&reference=${reference}`,
+          callback_url: `${process.env.APP_URL}${returnPath}?payment=verify&reference=${reference}`,
           metadata: {
             profile_id: profile.id,
             purpose: profile.role === 'earner' ? 'activation' : 'wallet_funding',
