@@ -16,6 +16,10 @@ async function guard() {
     if (requiredRole && result.user?.role !== requiredRole) {
       return message('Wrong workspace', `This area is for ${requiredRole}s. Head to your own dashboard instead.`, result.dashboard_path || '/auth/login.html', 'Go to my dashboard');
     }
+    // Hand the just-fetched, up-to-date profile to app.js so it doesn't fall
+    // back to the (possibly stale) copy cached in localStorage at login time —
+    // e.g. an activation or wallet top-up settled since the user last logged in.
+    window.__yolotaskFreshSession = result;
     document.body.dataset.view = requestedView;
     await import('./app.js');
   } catch (error) {
