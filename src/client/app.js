@@ -34,6 +34,7 @@ function navigate(view, options = {}) {
   const nextPath = pagePath(view);
   if (options.syncUrl !== false && window.location.pathname !== nextPath) history.pushState({ view }, '', nextPath);
   if (view === 'profile') ensureInterestsLoaded();
+  if (view === 'tasks') ensureTasksLoaded();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -46,7 +47,59 @@ function header() { const notificationUrl = pagePath(state.role === 'admin' ? 'a
 function metric(label,value,meta='') { return `<div class="card metric"><span class="metric-label">${label}</span><strong class="metric-value">${value}</strong><span class="metric-meta">${meta}</span></div>`; }
 function empty(title,copy,action='') { return `<div class="empty"><strong>${title}</strong><span>${copy}</span>${action ? `<div style="margin-top:17px">${action}</div>` : ''}</div>`; }
 function overviewView() { const earner = state.role === 'earner'; return `<div class="greeting"><div><div class="section-kicker">${earner ? 'Earner workspace' : state.role === 'advertiser' ? 'Advertiser workspace' : 'Control centre'}</div><h1 style="font-size:clamp(2.1rem,4vw,3.6rem)">${earner ? 'Keep the streak alive.' : state.role === 'advertiser' ? 'Make every impression count.' : 'See the whole picture.'}</h1><p>${earner ? 'Relevant opportunities are waiting in your task queue.' : state.role === 'advertiser' ? 'Your audience, campaigns, and spend in one calm view.' : 'Platform health, trust, and growth at a glance.'}</p></div>${state.role === 'advertiser' ? '<button class="btn btn-primary" data-action="new-campaign">+ New campaign</button>' : ''}</div><div class="metric-grid">${earner ? metric('Available balance',money(0),'Ledger balance')+metric('Pending rewards',money(0),'Under review')+metric('Tasks completed','0','Keep building')+metric('Reputation','Bronze','Starting rank') : state.role === 'advertiser' ? metric('Wallet balance',money(0),'Fund to go live')+metric('Active campaigns','0','No live campaigns')+metric('Workers reached','0','Across campaigns')+metric('Approval rate','—','Awaiting data') : metric('Total users','0','Awaiting connection')+metric('Active campaigns','0','Live now')+metric('Pending submissions','0','Needs review')+metric('Pending withdrawals',money(0),'Queue value')}</div><div class="dashboard-grid"><section class="card panel"><div class="panel-head"><h3>${earner ? 'Recommended tasks' : state.role === 'advertiser' ? 'Campaign pulse' : 'Platform activity'}</h3><a href="#tasks" data-view="${earner ? 'tasks' : 'campaigns'}" class="muted" style="font-size:.78rem">View all ↗</a></div>${empty(earner ? 'No tasks loaded yet' : state.role === 'advertiser' ? 'No campaigns yet' : 'No activity yet', isConfigured() ? 'Your live data will appear here once your Supabase project is connected.' : 'Connect Supabase in config.js to load live data.', earner ? '<button class="btn btn-secondary btn-small" data-view="tasks">Browse tasks</button>' : '')}</section><section class="card panel"><div class="panel-head"><h3>Quick actions</h3></div><div class="list">${earner ? '<button class="list-item" data-action="checkin"><span class="list-main"><span class="icon-box" style="margin:0;width:34px;height:34px">✓</span><span><span class="list-title">Daily check-in</span><span class="list-sub">Build your streak</span></span></span><span>↗</span></button><button class="list-item" data-view="referrals"><span class="list-main"><span class="icon-box" style="margin:0;width:34px">↗</span><span><span class="list-title">Invite an earner</span><span class="list-sub">Earn ₦500 on activation</span></span></span><span>↗</span></button>' : state.role === 'advertiser' ? '<button class="list-item" data-action="fund"><span class="list-main"><span class="icon-box" style="margin:0;width:34px">₦</span><span><span class="list-title">Fund wallet</span><span class="list-sub">Start your next campaign</span></span></span><span>↗</span></button><button class="list-item" data-action="new-campaign"><span class="list-main"><span class="icon-box" style="margin:0;width:34px">+</span><span><span class="list-title">Create campaign</span><span class="list-sub">Reach a targeted audience</span></span></span><span>↗</span></button>' : '<button class="list-item" data-view="withdrawals"><span class="list-main"><span class="icon-box" style="margin:0;width:34px">₦</span><span><span class="list-title">Review withdrawals</span><span class="list-sub">Keep payouts moving</span></span></span><span>↗</span></button><button class="list-item" data-view="users"><span class="list-main"><span class="icon-box" style="margin:0;width:34px">◉</span><span><span class="list-title">Manage users</span><span class="list-sub">Review roles and status</span></span></span><span>↗</span></button>'}</div></section></div>`; }
-function tasksView() { return `<div class="page-title"><div class="section-kicker">Earn more</div><h1 style="font-size:2.5rem">Task marketplace</h1><p>Browse campaigns matched to your interests and submit clear proof.</p></div><div class="toolbar"><div class="search"><span>⌕</span><input placeholder="Search tasks by title or type"></div><select style="max-width:190px"><option>All task types</option><option>Community Join</option><option>Social Engagement</option><option>Website Visit</option></select></div><section class="card panel">${empty('Your marketplace is being prepared','Once an advertiser campaign matches your profile, eligible tasks will appear here.','<button class="btn btn-secondary btn-small" data-view="profile">Review interests</button>')}</section>`; }
+let tasks = [];
+let tasksLoaded = false;
+let tasksLoading = false;
+const claimedTaskIds = new Set();
+const submittedTaskIds = new Set();
+async function ensureTasksLoaded(force = false) {
+  if ((tasksLoaded && !force) || tasksLoading) return tasks;
+  tasksLoading = true;
+  try {
+    const result = await apiRequest('tasks?action=list');
+    tasks = result.tasks || [];
+  } catch (error) {
+    tasks = [];
+    if (state.activeView === 'tasks') toast(error.message || 'Unable to load tasks.', 'error');
+  }
+  tasksLoaded = true;
+  tasksLoading = false;
+  if (state.activeView === 'tasks') render();
+  return tasks;
+}
+function taskCard(t) {
+  const body = submittedTaskIds.has(t.id)
+    ? '<span class="badge pending" style="margin-top:12px;display:inline-block">Submitted — awaiting review</span>'
+    : claimedTaskIds.has(t.id)
+      ? `<form data-submit-task="${t.id}" class="form-grid" style="margin-top:12px"><label class="form-field-full">Proof<textarea name="proof" rows="3" required placeholder="${esc(t.proof_requirements || 'Paste your proof link or details')}"></textarea></label><div class="form-actions form-field-full"><button class="btn btn-primary btn-small" type="submit">Submit proof</button></div></form>`
+      : `<button class="btn btn-secondary btn-small" style="margin-top:12px" data-claim-task="${t.id}">Claim task</button>`;
+  return `<div class="card panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><strong>${esc(t.title)}</strong><p class="muted" style="margin:6px 0 0;max-width:520px">${esc(t.brief || '')}</p></div><div style="text-align:right;white-space:nowrap"><div style="font-weight:700">${money(t.worker_payout)}</div><span class="badge${t.priority_tier && t.priority_tier !== 'normal' ? ' live' : ''}">${esc(t.priority_tier || 'normal')}</span></div></div>${body}</div>`;
+}
+async function claimTask(taskId) {
+  try {
+    await apiRequest('tasks?action=claim', { method: 'POST', body: { task_id: taskId } });
+    claimedTaskIds.add(taskId);
+    toast('Task claimed — submit your proof within 24 hours.');
+    render();
+  } catch (error) { toast(error.message || 'Unable to claim this task.', 'error'); }
+}
+async function submitTaskProof(form) {
+  const taskId = form.dataset.submitTask;
+  const proof = new FormData(form).get('proof');
+  try {
+    await apiRequest('tasks?action=submit', { method: 'POST', body: { task_id: taskId, proof } });
+    claimedTaskIds.delete(taskId);
+    submittedTaskIds.add(taskId);
+    toast('Proof submitted for review.');
+    render();
+  } catch (error) { toast(error.message || 'Unable to submit proof.', 'error'); }
+}
+function tasksView() {
+  const head = '<div class="page-title"><div class="section-kicker">Earn more</div><h1 style="font-size:2.5rem">Task marketplace</h1><p>Browse campaigns matched to your interests and submit clear proof.</p></div>';
+  if (tasksLoading || !tasksLoaded) return `${head}<section class="card panel"><p class="muted">Loading tasks…</p></section>`;
+  if (!tasks.length) return `${head}<section class="card panel">${empty('No eligible tasks right now', 'Once an advertiser campaign matches your profile, eligible tasks will appear here.', '<button class="btn btn-secondary btn-small" data-view="profile">Review interests</button>')}</section>`;
+  return `${head}<div>${tasks.map(taskCard).join('')}</div>`;
+}
 function walletView() { return `<div class="page-title"><div class="section-kicker">Financial centre</div><h1 style="font-size:2.5rem">Wallet</h1><p>All balance changes are recorded in a server-controlled immutable ledger.</p></div><div class="metric-grid">${metric('Available balance',money(0),'Ready to withdraw')+metric('Pending balance',money(0),'Awaiting approval')+metric('Locked balance',money(0),'Reserved')}</div><section class="card panel" style="margin-top:18px"><div class="panel-head"><h3>Transaction history</h3><button class="btn btn-primary btn-small" data-action="withdraw">Request withdrawal</button></div>${empty('No transactions yet','Approved earnings, deposits, withdrawals, and adjustments will be listed here.')}</section>`; }
 function referralsView() { return `<div class="page-title"><div class="section-kicker">Grow together</div><h1 style="font-size:2.5rem">Referrals</h1><p>Invite other earners. Your ₦500 reward is credited only after a referred earner activates.</p></div><section class="card panel" style="background:var(--ink);color:#fff"><div class="section-kicker">Your referral link</div><h2 style="font-size:2.2rem">Bring your circle in.</h2><p style="color:#a8bad1">Share this link with someone who wants to earn from digital promotion.</p><div style="display:flex;gap:9px;max-width:520px"><input id="referral-link" readonly value="Connect your account to generate a link"><button class="btn btn-primary" data-action="copy-referral">Copy</button></div></section><div class="dashboard-grid" style="margin-top:18px"><section class="card panel">${metric('Total referrals','0','All time')}${metric('Activated','0','Eligible referrals')}</section><section class="card panel"><div class="panel-head"><h3>Referral history</h3></div>${empty('No referrals yet','Your referral activity will appear here.')}</section></div>`; }
 function leaderboardView() { return `<div class="page-title"><div class="section-kicker">Recognition</div><h1 style="font-size:2.5rem">Leaderboard</h1><p>Compare progress without exposing sensitive financial information.</p></div><div class="toolbar"><div class="nav-actions"><button class="btn btn-primary btn-small">Weekly</button><button class="btn btn-secondary btn-small">Monthly</button><button class="btn btn-secondary btn-small">All time</button></div><select style="max-width:180px"><option>XP earned</option><option>Tasks completed</option><option>Referrals</option></select></div><section class="card panel">${empty('The leaderboard will take shape','Complete approved tasks and earn XP to appear on the board.')}</section>`; }
@@ -70,8 +123,14 @@ function bindEvents() {
     document.addEventListener('click', event => {
       const actionTarget = event.target.closest('[data-action]');
       if (actionTarget) { event.preventDefault(); handleAction(actionTarget.dataset.action); return; }
+      const claimTarget = event.target.closest('[data-claim-task]');
+      if (claimTarget) { event.preventDefault(); claimTask(claimTarget.dataset.claimTask); return; }
       const viewTarget = event.target.closest('[data-view]');
       if (viewTarget) { event.preventDefault(); navigate(viewTarget.dataset.view); }
+    });
+    document.addEventListener('submit', event => {
+      const taskForm = event.target.closest('[data-submit-task]');
+      if (taskForm) { event.preventDefault(); submitTaskProof(taskForm); }
     });
     delegatedEventsBound = true;
   }
@@ -118,6 +177,7 @@ if (window.__yolotaskFreshSession?.user) {
   state.user = window.__yolotaskFreshSession.user;
   state.role = window.__yolotaskFreshSession.user.role || state.role;
 }
+if (pageView === 'tasks' && state.user?.is_activated) ensureTasksLoaded();
 window.addEventListener('popstate', () => {
   const file = window.location.pathname.split('/').pop() || 'index.html';
   const view = file.replace(/\.html$/, '') === 'index' ? 'overview' : file.replace(/\.html$/, '');
