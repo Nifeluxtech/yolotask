@@ -35,6 +35,9 @@ function navigate(view, options = {}) {
   if (options.syncUrl !== false && window.location.pathname !== nextPath) history.pushState({ view }, '', nextPath);
   if (view === 'profile') ensureInterestsLoaded();
   if (view === 'tasks') ensureTasksLoaded();
+  if (view === 'wallet') ensureWalletLoaded();
+  if (view === 'campaigns') ensureCampaignsLoaded();
+  if (view === 'leaderboard') ensureLeaderboardLoaded();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -100,10 +103,84 @@ function tasksView() {
   if (!tasks.length) return `${head}<section class="card panel">${empty('No eligible tasks right now', 'Once an advertiser campaign matches your profile, eligible tasks will appear here.', '<button class="btn btn-secondary btn-small" data-view="profile">Review interests</button>')}</section>`;
   return `${head}<div>${tasks.map(taskCard).join('')}</div>`;
 }
-function walletView() { return `<div class="page-title"><div class="section-kicker">Financial centre</div><h1 style="font-size:2.5rem">Wallet</h1><p>All balance changes are recorded in a server-controlled immutable ledger.</p></div><div class="metric-grid">${metric('Available balance',money(0),'Ready to withdraw')+metric('Pending balance',money(0),'Awaiting approval')+metric('Locked balance',money(0),'Reserved')}</div><section class="card panel" style="margin-top:18px"><div class="panel-head"><h3>Transaction history</h3><button class="btn btn-primary btn-small" data-action="withdraw">Request withdrawal</button></div>${empty('No transactions yet','Approved earnings, deposits, withdrawals, and adjustments will be listed here.')}</section>`; }
+let walletData = null;
+let walletLoaded = false;
+let walletLoading = false;
+async function ensureWalletLoaded(force = false) {
+  if ((walletLoaded && !force) || walletLoading) return walletData;
+  walletLoading = true;
+  try { walletData = await apiRequest('wallet?action=summary'); }
+  catch (error) { walletData = null; if (state.activeView === 'wallet') toast(error.message || 'Unable to load wallet.', 'error'); }
+  walletLoaded = true;
+  walletLoading = false;
+  if (state.activeView === 'wallet') render();
+  return walletData;
+}
+function transactionRow(t) {
+  const negative = Number(t.amount) < 0;
+  return `<div class="list-item"><span><strong>${esc(t.description)}</strong><span class="list-sub">${new Date(t.created_at).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' })} · ${esc(t.status)}</span></span><strong style="color:${negative ? 'var(--danger,#d64545)' : 'inherit'}">${negative ? '' : '+'}${money(t.amount)}</strong></div>`;
+}
+function walletView() {
+  const head = '<div class="page-title"><div class="section-kicker">Financial centre</div><h1 style="font-size:2.5rem">Wallet</h1><p>All balance changes are recorded in a server-controlled immutable ledger.</p></div>';
+  if (walletLoading || !walletLoaded) return `${head}<section class="card panel"><p class="muted">Loading wallet…</p></section>`;
+  const w = walletData?.wallet || { available_balance: 0, pending_balance: 0, locked_balance: 0 };
+  const transactions = walletData?.transactions || [];
+  const actionButton = state.role === 'advertiser'
+    ? '<button class="btn btn-primary btn-small" data-action="fund">Fund wallet</button>'
+    : '<button class="btn btn-primary btn-small" data-action="withdraw">Request withdrawal</button>';
+  return `${head}<div class="metric-grid">${metric('Available balance', money(w.available_balance), 'Ready to withdraw') + metric('Pending balance', money(w.pending_balance), 'Awaiting approval') + metric('Locked balance', money(w.locked_balance), 'Reserved')}</div><section class="card panel" style="margin-top:18px"><div class="panel-head"><h3>Transaction history</h3>${actionButton}</div>${transactions.length ? `<div class="list">${transactions.map(transactionRow).join('')}</div>` : empty('No transactions yet', 'Approved earnings, deposits, withdrawals, and adjustments will be listed here.')}</section>`;
+}
 function referralsView() { return `<div class="page-title"><div class="section-kicker">Grow together</div><h1 style="font-size:2.5rem">Referrals</h1><p>Invite other earners. Your ₦500 reward is credited only after a referred earner activates.</p></div><section class="card panel" style="background:var(--ink);color:#fff"><div class="section-kicker">Your referral link</div><h2 style="font-size:2.2rem">Bring your circle in.</h2><p style="color:#a8bad1">Share this link with someone who wants to earn from digital promotion.</p><div style="display:flex;gap:9px;max-width:520px"><input id="referral-link" readonly value="Connect your account to generate a link"><button class="btn btn-primary" data-action="copy-referral">Copy</button></div></section><div class="dashboard-grid" style="margin-top:18px"><section class="card panel">${metric('Total referrals','0','All time')}${metric('Activated','0','Eligible referrals')}</section><section class="card panel"><div class="panel-head"><h3>Referral history</h3></div>${empty('No referrals yet','Your referral activity will appear here.')}</section></div>`; }
-function leaderboardView() { return `<div class="page-title"><div class="section-kicker">Recognition</div><h1 style="font-size:2.5rem">Leaderboard</h1><p>Compare progress without exposing sensitive financial information.</p></div><div class="toolbar"><div class="nav-actions"><button class="btn btn-primary btn-small">Weekly</button><button class="btn btn-secondary btn-small">Monthly</button><button class="btn btn-secondary btn-small">All time</button></div><select style="max-width:180px"><option>XP earned</option><option>Tasks completed</option><option>Referrals</option></select></div><section class="card panel">${empty('The leaderboard will take shape','Complete approved tasks and earn XP to appear on the board.')}</section>`; }
-function campaignsView() { return `<div class="page-title"><div class="section-kicker">Promotion studio</div><h1 style="font-size:2.5rem">Campaigns</h1><p>Build, moderate, and measure campaigns with server-side wallet reservation.</p></div><div class="toolbar"><div class="nav-actions"><button class="btn btn-secondary btn-small">All campaigns</button><button class="btn btn-secondary btn-small">Live</button><button class="btn btn-secondary btn-small">Drafts</button></div><button class="btn btn-primary" data-action="new-campaign">+ New campaign</button></div><section class="card panel"><div class="panel-head"><h3>Your campaigns</h3><span class="badge">0 campaigns</span></div>${empty('No campaigns yet','Create a campaign when your wallet is funded. All campaigns pass through moderation before going live.','<button class="btn btn-primary btn-small" data-action="new-campaign">Create first campaign</button>')}</section>`; }
+let leaderboard = [];
+let leaderboardLoaded = false;
+let leaderboardLoading = false;
+async function ensureLeaderboardLoaded(force = false) {
+  if ((leaderboardLoaded && !force) || leaderboardLoading) return leaderboard;
+  leaderboardLoading = true;
+  try { const result = await apiRequest('leaderboard'); leaderboard = result.leaderboard || []; }
+  catch (error) { leaderboard = []; if (state.activeView === 'leaderboard') toast(error.message || 'Unable to load leaderboard.', 'error'); }
+  leaderboardLoaded = true;
+  leaderboardLoading = false;
+  if (state.activeView === 'leaderboard') render();
+  return leaderboard;
+}
+function leaderboardRow(entry, index) {
+  const isMe = state.user && entry.id === state.user.id;
+  return `<div class="list-item"${isMe ? ' style="background:var(--surface)"' : ''}><span><strong>#${index + 1} ${esc(entry.full_name)}${isMe ? ' (you)' : ''}</strong><span class="list-sub">${esc(entry.reputation_rank)} · ${entry.tasks_completed} tasks · ${entry.referral_count} referrals</span></span><strong>${entry.xp} XP</strong></div>`;
+}
+function leaderboardView() {
+  const head = '<div class="page-title"><div class="section-kicker">Recognition</div><h1 style="font-size:2.5rem">Leaderboard</h1><p>Compare progress without exposing sensitive financial information.</p></div>';
+  if (leaderboardLoading || !leaderboardLoaded) return `${head}<section class="card panel"><p class="muted">Loading leaderboard…</p></section>`;
+  if (!leaderboard.length) return `${head}<section class="card panel">${empty('The leaderboard will take shape', 'Complete approved tasks to appear on the board.')}</section>`;
+  return `${head}<p class="muted" style="margin-top:-8px;margin-bottom:16px">All-time ranking by approved task completions.</p><section class="card panel"><div class="list">${leaderboard.map(leaderboardRow).join('')}</div></section>`;
+}
+let campaigns = [];
+let campaignsLoaded = false;
+let campaignsLoading = false;
+let campaignsFilter = 'all';
+async function ensureCampaignsLoaded(force = false) {
+  if ((campaignsLoaded && !force) || campaignsLoading) return campaigns;
+  campaignsLoading = true;
+  try { const result = await apiRequest('campaigns?action=list'); campaigns = result.campaigns || []; }
+  catch (error) { campaigns = []; if (state.activeView === 'campaigns') toast(error.message || 'Unable to load campaigns.', 'error'); }
+  campaignsLoaded = true;
+  campaignsLoading = false;
+  if (state.activeView === 'campaigns') render();
+  return campaigns;
+}
+function campaignRow(c) {
+  return `<div class="list-item"><span><strong>${esc(c.title)}</strong><span class="list-sub">${c.worker_limit} workers · ${money(c.price_per_worker)}/worker</span></span><span class="badge${c.status === 'live' ? ' live' : ''}">${esc(c.status)}</span></div>`;
+}
+function campaignsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Promotion studio</div><h1 style="font-size:2.5rem">Campaigns</h1><p>Build, moderate, and measure campaigns with server-side wallet reservation.</p></div>';
+  const filterBtn = (id, label) => `<button class="btn btn-${campaignsFilter === id ? 'primary' : 'secondary'} btn-small" data-campaign-filter="${id}">${label}</button>`;
+  const toolbar = `<div class="toolbar"><div class="nav-actions">${filterBtn('all', 'All campaigns') + filterBtn('live', 'Live') + filterBtn('draft', 'Drafts')}</div><button class="btn btn-primary" data-action="new-campaign">+ New campaign</button></div>`;
+  if (campaignsLoading || !campaignsLoaded) return `${head}${toolbar}<section class="card panel"><p class="muted">Loading campaigns…</p></section>`;
+  const filtered = campaignsFilter === 'live' ? campaigns.filter(c => c.status === 'live')
+    : campaignsFilter === 'draft' ? campaigns.filter(c => c.status === 'draft')
+    : campaigns;
+  return `${head}${toolbar}<section class="card panel"><div class="panel-head"><h3>Your campaigns</h3><span class="badge">${campaigns.length} campaign${campaigns.length === 1 ? '' : 's'}</span></div>${filtered.length ? `<div class="list">${filtered.map(campaignRow).join('')}</div>` : empty(campaignsFilter === 'all' ? 'No campaigns yet' : `No ${campaignsFilter} campaigns`, 'Create a campaign when your wallet is funded. All campaigns pass through moderation before going live.', '<button class="btn btn-primary btn-small" data-action="new-campaign">Create first campaign</button>')}</section>`;
+}
 function profileView() { return `<div class="page-title"><div class="section-kicker">Your identity</div><h1 style="font-size:2.5rem">Profile</h1><p>Keep your details and interests current so targeting stays relevant.</p></div><section class="card panel"><form id="profile-form" class="form-grid"><label>Full name<input name="full_name" value="${esc(state.user?.full_name || '')}" required></label><label>Email<input type="email" value="${esc(state.user?.email || '')}" disabled></label><label>Gender<select name="gender"><option value="prefer_not_to_say">Prefer not to say</option><option value="male">Male</option><option value="female">Female</option></select></label><label>Reputation<input value="Bronze · 0 XP" disabled></label><div class="form-field-full"><label>Interests <span class="muted">Choose at least 3</span></label><div class="interest-grid">${interestGrid()}</div></div><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Save profile</button></div></form></section>`; }
 function supportView() { return `<div class="page-title"><div class="section-kicker">We are here</div><h1 style="font-size:2.5rem">Support centre</h1><p>Find an answer or open a ticket for the team.</p></div><div class="dashboard-grid"><section class="card panel"><div class="panel-head"><h3>Frequently asked questions</h3></div><div class="list"><details class="list-item"><summary>When does an earner receive payment?</summary><p class="muted">After task proof is reviewed and approved, the server posts the configured reward to your ledger.</p></details><details class="list-item"><summary>How are advertiser campaigns funded?</summary><p class="muted">The platform calculates worker budget plus the current platform fee and reserves the total before a campaign can go live.</p></details><details class="list-item"><summary>Can I appeal a rejected task?</summary><p class="muted">Yes. Use a support ticket with the task reference and additional evidence.</p></details></div></section><section class="card panel"><div class="panel-head"><h3>Open a ticket</h3></div><form id="support-form"><label>Subject<input name="subject" required placeholder="What do you need help with?"></label><label style="margin-top:14px">Message<textarea name="message" rows="5" required placeholder="Give us the details"></textarea></label><button class="btn btn-primary" style="margin-top:16px" type="submit">Send ticket</button></form></section></div>`; }
 function settingsView() { const dark = document.body.classList.contains('dark-mode'); return `<div class="page-title"><div class="section-kicker">Preferences</div><h1 style="font-size:2.5rem">Settings</h1><p>Control your experience and security preferences.</p></div><section class="card panel"><div class="list"><div class="list-item"><span><strong>Theme</strong><span class="list-sub">${dark ? 'Dark interface enabled' : 'Light interface optimized for clarity'}</span></span><button class="btn btn-secondary btn-small" data-action="theme">${dark ? 'Switch to light' : 'Switch to dark'}</button></div><div class="list-item"><span><strong>Notifications</strong><span class="list-sub">In-app alerts for wallet, tasks, and campaigns</span></span><span class="badge live">Enabled</span></div><div class="list-item"><span><strong>Account security</strong><span class="list-sub">Authentication and role controls are server-enforced</span></span><span class="badge approved">Protected</span></div></div></section>`; }
@@ -125,6 +202,8 @@ function bindEvents() {
       if (actionTarget) { event.preventDefault(); handleAction(actionTarget.dataset.action); return; }
       const claimTarget = event.target.closest('[data-claim-task]');
       if (claimTarget) { event.preventDefault(); claimTask(claimTarget.dataset.claimTask); return; }
+      const filterTarget = event.target.closest('[data-campaign-filter]');
+      if (filterTarget) { event.preventDefault(); campaignsFilter = filterTarget.dataset.campaignFilter; render(); return; }
       const viewTarget = event.target.closest('[data-view]');
       if (viewTarget) { event.preventDefault(); navigate(viewTarget.dataset.view); }
     });
@@ -178,6 +257,9 @@ if (window.__yolotaskFreshSession?.user) {
   state.role = window.__yolotaskFreshSession.user.role || state.role;
 }
 if (pageView === 'tasks' && state.user?.is_activated) ensureTasksLoaded();
+if (pageView === 'wallet' && state.user) ensureWalletLoaded();
+if (pageView === 'campaigns' && state.user) ensureCampaignsLoaded();
+if (pageView === 'leaderboard' && state.user) ensureLeaderboardLoaded();
 window.addEventListener('popstate', () => {
   const file = window.location.pathname.split('/').pop() || 'index.html';
   const view = file.replace(/\.html$/, '') === 'index' ? 'overview' : file.replace(/\.html$/, '');
