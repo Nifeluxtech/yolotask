@@ -109,6 +109,15 @@ if (saved) {
     }
   } catch {}
 }
+// dashboard-guard.js already re-verifies the session server-side before ever
+// importing this module, and stashes the result here — use it instead of the
+// (possibly stale) localStorage snapshot above, so activation/wallet changes
+// that happened server-side (e.g. via the Paystack webhook) show up without
+// requiring a manual logout/login.
+if (window.__yolotaskFreshSession?.user) {
+  state.user = window.__yolotaskFreshSession.user;
+  state.role = window.__yolotaskFreshSession.user.role || state.role;
+}
 window.addEventListener('popstate', () => {
   const file = window.location.pathname.split('/').pop() || 'index.html';
   const view = file.replace(/\.html$/, '') === 'index' ? 'overview' : file.replace(/\.html$/, '');
