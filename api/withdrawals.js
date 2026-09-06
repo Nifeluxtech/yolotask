@@ -1,4 +1,4 @@
-import { requireUser, rpc } from '../src/server/supabase.js';
+import { adminClient, requireUser, rpc } from '../src/server/supabase.js';
 import { ok, fail, body } from '../src/server/http.js';
 import { positiveInt, requiredString, oneOf } from '../src/server/validation.js';
 import { enforceRateLimit } from '../src/server/rate-limit.js';
@@ -7,6 +7,17 @@ export default async function handler(req, res) {
   try {
     const action = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('action') || 'create';
     const { profile } = await requireUser(req, ['earner', 'admin']);
+
+    if (action === 'list' && req.method === 'GET') {
+      if (profile.role !== 'admin') throw Object.assign(new Error('Admin authorization required.'), { status: 403 });
+      const { data, error } = await adminClient
+        .from('withdrawals')
+        .select('*')
+        .in('status', ['pending', 'processing'])
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return ok(res, { withdrawals: data || [] });
+    }
 
     if (action === 'create' && req.method === 'POST') {
       await enforceRateLimit(req, 'withdrawals:create', profile.id);
