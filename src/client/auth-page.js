@@ -1,6 +1,7 @@
 import { apiRequest } from './api.js';
 
 const page = document.body.dataset.authPage || 'login';
+const referralCode = new URLSearchParams(window.location.search).get('ref');
 const form = document.querySelector('#auth-form');
 const error = document.querySelector('#auth-error');
 const notice = document.querySelector('#auth-notice');
@@ -52,6 +53,10 @@ form?.addEventListener('submit', async event => {
       : { email: data.get('email'), password: data.get('password'), full_name: data.get('full_name'), role, gender: role === 'earner' ? data.get('gender') : 'prefer_not_to_say', interests: role === 'earner' ? selected : [] };
     const result = await apiRequest(`auth?action=${page}`, { method:'POST', body:payload });
     if (result.session) localStorage.setItem('yolotask_session', JSON.stringify({ ...result.session, profile: result.user }));
+    if (page === 'register' && role === 'earner' && referralCode) {
+      try { await apiRequest('referrals?action=attach', { method:'POST', body:{ code: referralCode } }); }
+      catch (attachError) { console.warn('Referral attribution failed:', attachError.message); }
+    }
     if (page === 'login') {
       window.location.href = result.dashboard_path || '/earner/index.html';
     } else {
