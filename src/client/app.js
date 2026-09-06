@@ -17,7 +17,8 @@ ensureInterestsLoaded();
 function interestGrid() {
   if (!interestsLoaded) return '<p class="muted">Loading interests…</p>';
   if (!interests.length) return '<p class="muted">No interests are configured yet. Contact support to continue.</p>';
-  return interests.map(x => `<label class="interest"><input type="checkbox" name="interests" value="${esc(x)}"><span>${esc(x)}</span></label>`).join('');
+  const selected = new Set(state.user?.interests || []);
+  return interests.map(x => `<label class="interest"><input type="checkbox" name="interests" value="${esc(x)}"${selected.has(x) ? ' checked' : ''}><span>${esc(x)}</span></label>`).join('');
 }
 try { if (localStorage.getItem('yolotask_theme') === 'dark') document.body.classList.add('dark-mode'); } catch {}
 const pageView = document.body.dataset.view || null;
@@ -26,6 +27,7 @@ const app = document.querySelector('#app');
 
 const esc = (value = '') => String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
 const money = (value = 0) => `₦${Number(value || 0).toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+const cap = (value = '') => String(value).replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 const initials = (name = 'YO') => name.split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase();
 function toast(message, type = 'success') { const node = document.createElement('div'); node.className = `toast ${type === 'error' ? 'error' : ''}`; node.textContent = message; document.querySelector('#toast-region').append(node); setTimeout(() => node.remove(), 4200); }
 function navigate(view, options = {}) {
@@ -38,6 +40,15 @@ function navigate(view, options = {}) {
   if (view === 'wallet') ensureWalletLoaded();
   if (view === 'campaigns') ensureCampaignsLoaded();
   if (view === 'leaderboard') ensureLeaderboardLoaded();
+  if (view === 'reputation') ensureLeaderboardLoaded();
+  if (view === 'referrals') ensureReferralsLoaded();
+  if (view === 'notifications') ensureNotificationsLoaded();
+  if (view === 'announcements') ensureAnnouncementsLoaded();
+  if (view === 'achievements') ensureAchievementsLoaded();
+  if (view === 'analytics') { ensureCampaignsLoaded(); ensureWalletLoaded(); }
+  if (view === 'users') ensureAdminUsersLoaded();
+  if (view === 'withdrawals') ensureAdminWithdrawalsLoaded();
+  if (view === 'settings' && state.role === 'admin') ensureAdminSettingsLoaded();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -130,7 +141,33 @@ function walletView() {
     : '<button class="btn btn-primary btn-small" data-action="withdraw">Request withdrawal</button>';
   return `${head}<div class="metric-grid">${metric('Available balance', money(w.available_balance), 'Ready to withdraw') + metric('Pending balance', money(w.pending_balance), 'Awaiting approval') + metric('Locked balance', money(w.locked_balance), 'Reserved')}</div><section class="card panel" style="margin-top:18px"><div class="panel-head"><h3>Transaction history</h3>${actionButton}</div>${transactions.length ? `<div class="list">${transactions.map(transactionRow).join('')}</div>` : empty('No transactions yet', 'Approved earnings, deposits, withdrawals, and adjustments will be listed here.')}</section>`;
 }
-function referralsView() { return `<div class="page-title"><div class="section-kicker">Grow together</div><h1 style="font-size:2.5rem">Referrals</h1><p>Invite other earners. Your ₦500 reward is credited only after a referred earner activates.</p></div><section class="card panel" style="background:var(--ink);color:#fff"><div class="section-kicker">Your referral link</div><h2 style="font-size:2.2rem">Bring your circle in.</h2><p style="color:#a8bad1">Share this link with someone who wants to earn from digital promotion.</p><div style="display:flex;gap:9px;max-width:520px"><input id="referral-link" readonly value="Connect your account to generate a link"><button class="btn btn-primary" data-action="copy-referral">Copy</button></div></section><div class="dashboard-grid" style="margin-top:18px"><section class="card panel">${metric('Total referrals','0','All time')}${metric('Activated','0','Eligible referrals')}</section><section class="card panel"><div class="panel-head"><h3>Referral history</h3></div>${empty('No referrals yet','Your referral activity will appear here.')}</section></div>`; }
+let referralData = null;
+let referralsLoaded = false;
+let referralsLoading = false;
+async function ensureReferralsLoaded(force = false) {
+  if ((referralsLoaded && !force) || referralsLoading) return referralData;
+  referralsLoading = true;
+  try { referralData = await apiRequest('referrals?action=summary'); }
+  catch (error) { referralData = null; if (state.activeView === 'referrals') toast(error.message || 'Unable to load referrals.', 'error'); }
+  referralsLoaded = true;
+  referralsLoading = false;
+  if (state.activeView === 'referrals') render();
+  return referralData;
+}
+function referralRow(r) {
+  return `<div class="list-item"><span><strong>${esc(cap(r.status))}</strong><span class="list-sub">${new Date(r.created_at).toLocaleDateString('en-NG', { dateStyle: 'medium' })}${r.activated_at ? ' · Activated' : ''}</span></span><strong>${money(r.reward_amount)}</strong></div>`;
+}
+function referralsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Grow together</div><h1 style="font-size:2.5rem">Referrals</h1><p>Invite other earners. Your ₦500 reward is credited only after a referred earner activates.</p></div>';
+  const link = referralData?.link || '';
+  const referrals = referralData?.referrals || [];
+  const activatedCount = referrals.filter(r => r.activated_at).length;
+  const linkBlock = `<section class="card panel" style="background:var(--ink);color:#fff"><div class="section-kicker">Your referral link</div><h2 style="font-size:2.2rem">Bring your circle in.</h2><p style="color:#a8bad1">Share this link with someone who wants to earn from digital promotion.</p><div style="display:flex;gap:9px;max-width:520px"><input id="referral-link" readonly value="${esc(link || (referralsLoading || !referralsLoaded ? 'Loading your link…' : 'Unable to load your link'))}"><button class="btn btn-primary" data-action="copy-referral">Copy</button></div></section>`;
+  const historySection = (referralsLoading || !referralsLoaded)
+    ? '<section class="card panel"><div class="panel-head"><h3>Referral history</h3></div><p class="muted">Loading…</p></section>'
+    : `<section class="card panel"><div class="panel-head"><h3>Referral history</h3></div>${referrals.length ? `<div class="list">${referrals.map(referralRow).join('')}</div>` : empty('No referrals yet', 'Your referral activity will appear here.')}</section>`;
+  return `${head}${linkBlock}<div class="dashboard-grid" style="margin-top:18px"><section class="card panel">${metric('Total referrals', String(referrals.length), 'All time') + metric('Activated', String(activatedCount), 'Eligible referrals')}</section>${historySection}</div>`;
+}
 let leaderboard = [];
 let leaderboardLoaded = false;
 let leaderboardLoading = false;
@@ -181,13 +218,159 @@ function campaignsView() {
     : campaigns;
   return `${head}${toolbar}<section class="card panel"><div class="panel-head"><h3>Your campaigns</h3><span class="badge">${campaigns.length} campaign${campaigns.length === 1 ? '' : 's'}</span></div>${filtered.length ? `<div class="list">${filtered.map(campaignRow).join('')}</div>` : empty(campaignsFilter === 'all' ? 'No campaigns yet' : `No ${campaignsFilter} campaigns`, 'Create a campaign when your wallet is funded. All campaigns pass through moderation before going live.', '<button class="btn btn-primary btn-small" data-action="new-campaign">Create first campaign</button>')}</section>`;
 }
-function profileView() { return `<div class="page-title"><div class="section-kicker">Your identity</div><h1 style="font-size:2.5rem">Profile</h1><p>Keep your details and interests current so targeting stays relevant.</p></div><section class="card panel"><form id="profile-form" class="form-grid"><label>Full name<input name="full_name" value="${esc(state.user?.full_name || '')}" required></label><label>Email<input type="email" value="${esc(state.user?.email || '')}" disabled></label><label>Gender<select name="gender"><option value="prefer_not_to_say">Prefer not to say</option><option value="male">Male</option><option value="female">Female</option></select></label><label>Reputation<input value="Bronze · 0 XP" disabled></label><div class="form-field-full"><label>Interests <span class="muted">Choose at least 3</span></label><div class="interest-grid">${interestGrid()}</div></div><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Save profile</button></div></form></section>`; }
+function profileView() {
+  const gender = state.user?.gender || 'prefer_not_to_say';
+  const rank = state.user?.reputation_rank || 'bronze';
+  const xp = state.user?.xp ?? 0;
+  const genderOption = (value, label) => `<option value="${value}"${gender === value ? ' selected' : ''}>${label}</option>`;
+  return `<div class="page-title"><div class="section-kicker">Your identity</div><h1 style="font-size:2.5rem">Profile</h1><p>Keep your details and interests current so targeting stays relevant.</p></div><section class="card panel"><form id="profile-form" class="form-grid"><label>Full name<input name="full_name" value="${esc(state.user?.full_name || '')}" required></label><label>Email<input type="email" value="${esc(state.user?.email || '')}" disabled></label><label>Gender<select name="gender">${genderOption('prefer_not_to_say', 'Prefer not to say') + genderOption('male', 'Male') + genderOption('female', 'Female')}</select></label><label>Reputation<input value="${esc(cap(rank))} · ${xp} XP" disabled></label><div class="form-field-full"><label>Interests <span class="muted">Choose at least 3</span></label><div class="interest-grid">${interestGrid()}</div></div><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Save profile</button></div></form></section>`;
+}
 function supportView() { return `<div class="page-title"><div class="section-kicker">We are here</div><h1 style="font-size:2.5rem">Support centre</h1><p>Find an answer or open a ticket for the team.</p></div><div class="dashboard-grid"><section class="card panel"><div class="panel-head"><h3>Frequently asked questions</h3></div><div class="list"><details class="list-item"><summary>When does an earner receive payment?</summary><p class="muted">After task proof is reviewed and approved, the server posts the configured reward to your ledger.</p></details><details class="list-item"><summary>How are advertiser campaigns funded?</summary><p class="muted">The platform calculates worker budget plus the current platform fee and reserves the total before a campaign can go live.</p></details><details class="list-item"><summary>Can I appeal a rejected task?</summary><p class="muted">Yes. Use a support ticket with the task reference and additional evidence.</p></details></div></section><section class="card panel"><div class="panel-head"><h3>Open a ticket</h3></div><form id="support-form"><label>Subject<input name="subject" required placeholder="What do you need help with?"></label><label style="margin-top:14px">Message<textarea name="message" rows="5" required placeholder="Give us the details"></textarea></label><button class="btn btn-primary" style="margin-top:16px" type="submit">Send ticket</button></form></section></div>`; }
 function settingsView() { const dark = document.body.classList.contains('dark-mode'); return `<div class="page-title"><div class="section-kicker">Preferences</div><h1 style="font-size:2.5rem">Settings</h1><p>Control your experience and security preferences.</p></div><section class="card panel"><div class="list"><div class="list-item"><span><strong>Theme</strong><span class="list-sub">${dark ? 'Dark interface enabled' : 'Light interface optimized for clarity'}</span></span><button class="btn btn-secondary btn-small" data-action="theme">${dark ? 'Switch to light' : 'Switch to dark'}</button></div><div class="list-item"><span><strong>Notifications</strong><span class="list-sub">In-app alerts for wallet, tasks, and campaigns</span></span><span class="badge live">Enabled</span></div><div class="list-item"><span><strong>Account security</strong><span class="list-sub">Authentication and role controls are server-enforced</span></span><span class="badge approved">Protected</span></div></div></section>`; }
-function adminUsersView() { return `<div class="page-title"><div class="section-kicker">Administration</div><h1 style="font-size:2.5rem">Users</h1><p>Manage access, roles, activation, and platform trust signals.</p></div><section class="card panel"><div class="toolbar"><div class="search"><span>⌕</span><input placeholder="Search users"></div><select style="max-width:160px"><option>All roles</option><option>Earner</option><option>Advertiser</option><option>Admin</option></select></div>${empty('No users loaded','Connect the server to review user records with role-protected queries.')}</section>`; }
-function adminWithdrawalsView() { return `<div class="page-title"><div class="section-kicker">Administration</div><h1 style="font-size:2.5rem">Withdrawals</h1><p>Review requests before processing payment. Status is never inferred from browser submission.</p></div><section class="card panel">${empty('No pending withdrawals','The review queue is clear or not yet connected.')}</section>`; }
-function adminSettingsView() { return `<div class="page-title"><div class="section-kicker">Administration</div><h1 style="font-size:2.5rem">Platform settings</h1><p>Configure pricing, platform fees, task types, interests, achievements, and reputation rules.</p></div><section class="card panel"><div class="list"><div class="list-item"><span><strong>Platform fee</strong><span class="list-sub">Applied to advertiser campaign reservations</span></span><strong>10%</strong></div><div class="list-item"><span><strong>Earner activation</strong><span class="list-sub">One-time activation charge</span></span><strong>₦1,000</strong></div><div class="list-item"><span><strong>Referral reward</strong><span class="list-sub">After successful activation</span></span><strong>₦500</strong></div><p class="muted" style="font-size:.82rem">Values shown here are seed defaults. Change them through authenticated administration APIs after connecting Supabase.</p></div></section>`; }
-function notificationsView() { return `<div class="page-title"><div class="section-kicker">Stay informed</div><h1 style="font-size:2.5rem">Notifications</h1><p>Wallet, task, campaign, referral, and security updates appear here.</p></div><section class="card panel">${empty('You are all caught up','New in-app notifications will appear here as activity happens.')}</section>`; }
+let adminUsers = [];
+let adminUsersLoaded = false;
+let adminUsersLoading = false;
+let adminUsersFilter = { role: '', q: '' };
+async function ensureAdminUsersLoaded(force = false) {
+  if ((adminUsersLoaded && !force) || adminUsersLoading) return adminUsers;
+  adminUsersLoading = true;
+  try {
+    const params = new URLSearchParams();
+    if (adminUsersFilter.role) params.set('role', adminUsersFilter.role);
+    if (adminUsersFilter.q) params.set('q', adminUsersFilter.q);
+    const qs = params.toString();
+    const result = await apiRequest(`admin?action=users${qs ? '&' + qs : ''}`);
+    adminUsers = result.users || [];
+  } catch (error) { adminUsers = []; if (state.activeView === 'users') toast(error.message || 'Unable to load users.', 'error'); }
+  adminUsersLoaded = true;
+  adminUsersLoading = false;
+  if (state.activeView === 'users') render();
+  return adminUsers;
+}
+async function toggleUserSuspend(profileId, suspend) {
+  try {
+    await apiRequest('admin?action=user-status', { method: 'PATCH', body: { profile_id: profileId, is_suspended: suspend } });
+    const u = adminUsers.find(x => x.id === profileId);
+    if (u) u.is_suspended = suspend;
+    toast(suspend ? 'User suspended.' : 'User reinstated.');
+    render();
+  } catch (error) { toast(error.message || 'Unable to update user.', 'error'); }
+}
+function adminUserRow(u) {
+  return `<div class="list-item"><span><strong>${esc(u.full_name)}</strong><span class="list-sub">${esc(u.email)} · ${cap(u.role)} · ${u.is_activated ? 'Activated' : 'Not activated'}</span></span><span style="display:flex;gap:10px;align-items:center">${u.is_suspended ? '<span class="badge pending">Suspended</span>' : '<span class="badge approved">Active</span>'}<button class="btn btn-secondary btn-small" data-toggle-suspend="${u.id}" data-suspend="${u.is_suspended ? '0' : '1'}">${u.is_suspended ? 'Reinstate' : 'Suspend'}</button></span></div>`;
+}
+function adminUsersView() {
+  const head = '<div class="page-title"><div class="section-kicker">Administration</div><h1 style="font-size:2.5rem">Users</h1><p>Manage access, roles, activation, and platform trust signals.</p></div>';
+  const toolbar = `<div class="toolbar"><div class="search"><span>⌕</span><input id="admin-user-search" placeholder="Search users, press Enter" value="${esc(adminUsersFilter.q)}"></div><select id="admin-user-role" style="max-width:160px"><option value=""${adminUsersFilter.role === '' ? ' selected' : ''}>All roles</option><option value="earner"${adminUsersFilter.role === 'earner' ? ' selected' : ''}>Earner</option><option value="advertiser"${adminUsersFilter.role === 'advertiser' ? ' selected' : ''}>Advertiser</option><option value="admin"${adminUsersFilter.role === 'admin' ? ' selected' : ''}>Admin</option></select></div>`;
+  if (adminUsersLoading || !adminUsersLoaded) return `${head}<section class="card panel">${toolbar}<p class="muted">Loading…</p></section>`;
+  return `${head}<section class="card panel">${toolbar}${adminUsers.length ? `<div class="list">${adminUsers.map(adminUserRow).join('')}</div>` : empty('No users found', 'Try a different search or role filter.')}</section>`;
+}
+let adminWithdrawals = [];
+let adminWithdrawalsLoaded = false;
+let adminWithdrawalsLoading = false;
+async function ensureAdminWithdrawalsLoaded(force = false) {
+  if ((adminWithdrawalsLoaded && !force) || adminWithdrawalsLoading) return adminWithdrawals;
+  adminWithdrawalsLoading = true;
+  try { const result = await apiRequest('withdrawals?action=list'); adminWithdrawals = result.withdrawals || []; }
+  catch (error) { adminWithdrawals = []; if (state.activeView === 'withdrawals') toast(error.message || 'Unable to load withdrawals.', 'error'); }
+  adminWithdrawalsLoaded = true;
+  adminWithdrawalsLoading = false;
+  if (state.activeView === 'withdrawals') render();
+  return adminWithdrawals;
+}
+async function reviewWithdrawal(id, status) {
+  try {
+    await apiRequest('withdrawals?action=review', { method: 'PATCH', body: { withdrawal_id: id, status } });
+    adminWithdrawals = adminWithdrawals.filter(w => w.id !== id);
+    toast(`Withdrawal ${status}.`);
+    render();
+  } catch (error) { toast(error.message || 'Unable to update withdrawal.', 'error'); }
+}
+function adminWithdrawalRow(w) {
+  return `<div class="list-item"><span><strong>${money(w.amount)}</strong><span class="list-sub">${esc(w.bank)} · ${esc(w.account_number)} · ${esc(w.account_name)} · ${new Date(w.created_at).toLocaleDateString('en-NG', { dateStyle: 'medium' })}</span></span><span style="display:flex;gap:8px"><button class="btn btn-primary btn-small" data-review-withdrawal="${w.id}" data-review-status="approved">Approve</button><button class="btn btn-secondary btn-small" data-review-withdrawal="${w.id}" data-review-status="rejected">Reject</button></span></div>`;
+}
+function adminWithdrawalsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Administration</div><h1 style="font-size:2.5rem">Withdrawals</h1><p>Review requests before processing payment. Status is never inferred from browser submission.</p></div>';
+  if (adminWithdrawalsLoading || !adminWithdrawalsLoaded) return `${head}<section class="card panel"><p class="muted">Loading…</p></section>`;
+  if (!adminWithdrawals.length) return `${head}<section class="card panel">${empty('No pending withdrawals', 'The review queue is clear.')}</section>`;
+  return `${head}<section class="card panel"><div class="list">${adminWithdrawals.map(adminWithdrawalRow).join('')}</div></section>`;
+}
+let adminSettings = [];
+let adminSettingsLoaded = false;
+let adminSettingsLoading = false;
+async function ensureAdminSettingsLoaded(force = false) {
+  if ((adminSettingsLoaded && !force) || adminSettingsLoading) return adminSettings;
+  adminSettingsLoading = true;
+  try { const result = await apiRequest('admin?action=settings'); adminSettings = result.settings || []; }
+  catch (error) { adminSettings = []; if (state.activeView === 'settings' && state.role === 'admin') toast(error.message || 'Unable to load settings.', 'error'); }
+  adminSettingsLoaded = true;
+  adminSettingsLoading = false;
+  if (state.activeView === 'settings') render();
+  return adminSettings;
+}
+async function saveSetting(key, form) {
+  const value = new FormData(form).get('value');
+  try {
+    await apiRequest('admin?action=settings', { method: 'PATCH', body: { key, value } });
+    const row = adminSettings.find(s => s.key === key);
+    if (row) row.value = value;
+    toast('Setting saved.');
+    render();
+  } catch (error) { toast(error.message || 'Unable to save setting.', 'error'); }
+}
+// Only platform_fee_rate is actually read dynamically (by create_campaign_with_reservation).
+// The other seeded settings exist as rows but nothing in the codebase reads them yet —
+// those amounts are still hardcoded elsewhere, so editing them here would silently do
+// nothing. Marked read-only and labelled honestly until that wiring exists.
+const SETTING_META = {
+  platform_fee_rate: { label: 'Platform fee', hint: 'Applied to advertiser campaign reservations (e.g. 0.10 = 10%).', live: true },
+  earner_activation_fee: { label: 'Earner activation fee', hint: 'Not yet live — the ₦1,000 charge is hardcoded in api/payments.js.', live: false },
+  referral_reward: { label: 'Referral reward', hint: 'Not yet live — the ₦500 reward is a database column default.', live: false },
+  daily_checkin_reward: { label: 'Daily check-in reward', hint: 'Not yet live — the ₦10 reward is hardcoded in the check-in function.', live: false }
+};
+function settingRow(s) {
+  const meta = SETTING_META[s.key] || { label: s.key, hint: '', live: false };
+  const control = meta.live
+    ? `<form data-setting-form="${s.key}" style="display:flex;gap:8px;align-items:center"><input name="value" value="${esc(s.value)}" style="width:100px"><button class="btn btn-primary btn-small" type="submit">Save</button></form>`
+    : `<strong>${esc(s.value)}</strong>`;
+  return `<div class="list-item"><span><strong>${esc(meta.label)}</strong><span class="list-sub">${esc(meta.hint)}</span></span>${control}</div>`;
+}
+function adminSettingsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Administration</div><h1 style="font-size:2.5rem">Platform settings</h1><p>Configure pricing, platform fees, task types, interests, achievements, and reputation rules.</p></div>';
+  if (adminSettingsLoading || !adminSettingsLoaded) return `${head}<section class="card panel"><p class="muted">Loading…</p></section>`;
+  return `${head}<section class="card panel"><div class="list">${adminSettings.map(settingRow).join('')}</div></section>`;
+}
+let notifications = [];
+let notificationsLoaded = false;
+let notificationsLoading = false;
+async function ensureNotificationsLoaded(force = false) {
+  if ((notificationsLoaded && !force) || notificationsLoading) return notifications;
+  notificationsLoading = true;
+  try { const result = await apiRequest('notifications?action=list'); notifications = result.notifications || []; }
+  catch (error) { notifications = []; if (state.activeView === 'notifications') toast(error.message || 'Unable to load notifications.', 'error'); }
+  notificationsLoaded = true;
+  notificationsLoading = false;
+  if (state.activeView === 'notifications') render();
+  return notifications;
+}
+async function markNotificationRead(id) {
+  try {
+    await apiRequest('notifications?action=read', { method: 'PATCH', body: { id } });
+    const item = notifications.find(n => n.id === id);
+    if (item) item.read_at = new Date().toISOString();
+    render();
+  } catch (error) { toast(error.message || 'Unable to update notification.', 'error'); }
+}
+function notificationRow(n) {
+  const unread = !n.read_at;
+  return `<div class="list-item"${unread ? ' style="background:var(--surface)"' : ''}><span><strong>${esc(n.title)}</strong><span class="list-sub">${esc(n.message)} · ${new Date(n.created_at).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' })}</span></span>${unread ? `<button class="btn btn-secondary btn-small" data-mark-read="${n.id}">Mark read</button>` : '<span class="badge">Read</span>'}</div>`;
+}
+function notificationsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Stay informed</div><h1 style="font-size:2.5rem">Notifications</h1><p>Wallet, task, campaign, referral, and security updates appear here.</p></div>';
+  if (notificationsLoading || !notificationsLoaded) return `${head}<section class="card panel"><p class="muted">Loading…</p></section>`;
+  if (!notifications.length) return `${head}<section class="card panel">${empty('You are all caught up', 'New in-app notifications will appear here as activity happens.')}</section>`;
+  return `${head}<section class="card panel"><div class="list">${notifications.map(notificationRow).join('')}</div></section>`;
+}
 function activationView() { return `<div class="greeting"><div><div class="section-kicker">One-time activation</div><h1 style="font-size:clamp(2.1rem,4vw,3.6rem)">Unlock your earning workspace.</h1><p>Complete the ₦1,000 activation payment. Your account will unlock only after the server verifies the Paystack transaction.</p></div></div><section class="card panel" style="max-width:720px"><div class="icon-box">₦</div><h3>Activate earner account</h3><p class="muted">Activation protects the marketplace from duplicate and low-quality activity. We never mark an account active from the browser.</p><div class="list" style="margin-top:22px"><div class="list-item"><span>Activation fee</span><strong>₦1,000</strong></div><div class="list-item"><span>Payment verification</span><span class="badge approved">Server verified</span></div><div class="list-item"><span>Earning features</span><span class="badge pending">Locked until verified</span></div></div><button class="btn btn-primary" style="margin-top:22px" data-action="activate">Pay ₦1,000 and activate ↗</button></section>`; }
 async function activate() { try { const result=await apiRequest('payments?action=initialize',{method:'POST',body:{}}); if(result.authorization_url) window.location.href=result.authorization_url; } catch(error) { toast(error.message,'error'); } }
 function appView() { if(state.role==='earner' && state.user && !state.user.is_activated && !['profile','settings','support'].includes(state.activeView)) return `<div class="dashboard-shell">${sidebar()}<main class="main-panel">${header()}<div class="content">${activationView()}</div></main></div>`; let content = state.activeView === 'overview' ? overviewView() : state.activeView === 'tasks' ? tasksView() : state.activeView === 'wallet' ? walletView() : state.activeView === 'referrals' ? referralsView() : state.activeView === 'leaderboard' ? leaderboardView() : state.activeView === 'campaigns' ? campaignsView() : state.activeView === 'profile' ? profileView() : state.activeView === 'support' ? supportView() : state.activeView === 'notifications' ? notificationsView() : state.activeView === 'achievements' ? achievementsView() : state.activeView === 'reputation' ? reputationView() : state.activeView === 'announcements' ? announcementsView() : state.activeView === 'analytics' ? analyticsView() : state.activeView === 'users' ? adminUsersView() : state.activeView === 'withdrawals' ? adminWithdrawalsView() : state.activeView === 'settings' ? (state.role === 'admin' ? adminSettingsView() : settingsView()) : overviewView(); return `<div class="dashboard-shell">${sidebar()}<main class="main-panel">${header()}<div class="content">${content}</div></main></div>`; }
@@ -204,22 +387,34 @@ function bindEvents() {
       if (claimTarget) { event.preventDefault(); claimTask(claimTarget.dataset.claimTask); return; }
       const filterTarget = event.target.closest('[data-campaign-filter]');
       if (filterTarget) { event.preventDefault(); campaignsFilter = filterTarget.dataset.campaignFilter; render(); return; }
+      const readTarget = event.target.closest('[data-mark-read]');
+      if (readTarget) { event.preventDefault(); markNotificationRead(readTarget.dataset.markRead); return; }
+      const suspendTarget = event.target.closest('[data-toggle-suspend]');
+      if (suspendTarget) { event.preventDefault(); toggleUserSuspend(suspendTarget.dataset.toggleSuspend, suspendTarget.dataset.suspend === '1'); return; }
+      const reviewTarget = event.target.closest('[data-review-withdrawal]');
+      if (reviewTarget) { event.preventDefault(); reviewWithdrawal(reviewTarget.dataset.reviewWithdrawal, reviewTarget.dataset.reviewStatus); return; }
       const viewTarget = event.target.closest('[data-view]');
       if (viewTarget) { event.preventDefault(); navigate(viewTarget.dataset.view); }
     });
     document.addEventListener('submit', event => {
       const taskForm = event.target.closest('[data-submit-task]');
-      if (taskForm) { event.preventDefault(); submitTaskProof(taskForm); }
+      if (taskForm) { event.preventDefault(); submitTaskProof(taskForm); return; }
+      const settingForm = event.target.closest('[data-setting-form]');
+      if (settingForm) { event.preventDefault(); saveSetting(settingForm.dataset.settingForm, settingForm); }
     });
     delegatedEventsBound = true;
   }
   const authForm = document.querySelector('#auth-form'); if (authForm) authForm.onsubmit = handleAuth;
   const profileForm = document.querySelector('#profile-form'); if (profileForm) profileForm.onsubmit = handleProfile;
+  const adminUserSearch = document.querySelector('#admin-user-search');
+  if (adminUserSearch) adminUserSearch.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); adminUsersFilter.q = adminUserSearch.value.trim(); ensureAdminUsersLoaded(true); } };
+  const adminUserRole = document.querySelector('#admin-user-role');
+  if (adminUserRole) adminUserRole.onchange = () => { adminUsersFilter.role = adminUserRole.value; ensureAdminUsersLoaded(true); };
   const supportForm = document.querySelector('#support-form'); if (supportForm) supportForm.onsubmit = handleSupport;
 }
 async function handleAuth(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const register = state.activeView === 'register' || state.activeView === 'advertiser'; const selected = form.getAll('interests'); if (register && form.get('role') === 'earner' && selected.length < 3) return showAuthError('Select at least 3 interests to continue.'); state.loading = true; try { const result = await apiRequest(register ? 'auth?action=register' : 'auth?action=login', { method:'POST', body: register ? { email:form.get('email'), password:form.get('password'), full_name:form.get('full_name'), role:form.get('role'), gender:form.get('gender'), interests:selected } : { email:form.get('email'), password:form.get('password') } }); if (result.session) localStorage.setItem('yolotask_session', JSON.stringify(result.session)); state.user = result.user; state.role = result.user.role; state.activeView = 'overview'; toast(register ? 'Account created. Welcome to YOLOTASK.' : 'Welcome back.'); render(); } catch (error) { showAuthError(error.message || 'Unable to complete authentication.'); } finally { state.loading = false; } }
 function showAuthError(message) { const node = document.querySelector('#auth-error'); if (node) node.innerHTML = `<div class="alert">${esc(message)}</div>`; }
-async function handleProfile(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const selected = form.getAll('interests'); if (selected.length && selected.length < 3) return toast('Choose at least 3 interests.', 'error'); try { await apiRequest('auth?action=profile', { method:'PATCH', body:{ full_name:form.get('full_name'), gender:form.get('gender'), interests:selected } }); toast('Profile saved.'); } catch (error) { toast(error.message, 'error'); } }
+async function handleProfile(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const selected = form.getAll('interests'); if (selected.length && selected.length < 3) return toast('Choose at least 3 interests.', 'error'); try { const result = await apiRequest('auth?action=profile', { method:'PATCH', body:{ full_name:form.get('full_name'), gender:form.get('gender'), interests:selected } }); if (result.user) { state.user = { ...state.user, ...result.user, interests: selected.length ? selected : state.user?.interests }; } toast('Profile saved.'); render(); } catch (error) { toast(error.message, 'error'); } }
 async function handleSupport(event) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await apiRequest('support', { method:'POST', body:{ subject:form.get('subject'), message:form.get('message') } }); event.currentTarget.reset(); toast('Support ticket submitted.'); } catch (error) { toast(error.message, 'error'); } }
 function handleAction(action) { if (action === 'login') { state.activeView='login'; render(); } else if (action === 'register' || action === 'advertiser') { state.activeView='register'; ensureInterestsLoaded(); render(); if (action === 'advertiser') document.querySelector('[name=role]').value='advertiser'; } else if (action === 'home') { state.user=null; state.activeView='landing'; render(); } else if (action === 'logout') { localStorage.removeItem('yolotask_session'); state.user=null; state.activeView='landing'; render(); toast('You have been signed out.'); } else if (action === 'new-campaign') newCampaignModal(); else if (action === 'fund') fundingModal(); else if (action === 'withdraw') withdrawalModal(); else if (action === 'checkin') checkin(); else if (action === 'activate') activate(); else if (action === 'copy-referral') { navigator.clipboard?.writeText(document.querySelector('#referral-link')?.value || ''); toast('Referral link copied.'); } else if (action === 'toggle-sidebar') { document.querySelector('.dashboard-shell')?.classList.toggle('sidebar-open'); } else if (action === 'theme') { const enabled = document.body.classList.toggle('dark-mode'); try { localStorage.setItem('yolotask_theme', enabled ? 'dark' : 'light'); } catch {} toast(enabled ? 'Dark mode enabled.' : 'Light mode enabled.'); if (state.activeView === 'settings') render(); } }
 function newCampaignModal() { openModal('Create campaign', `<form id="campaign-form" class="form-grid"><label class="form-field-full">Campaign name<input name="title" required placeholder="e.g. Join our founder community"></label><label>Task type<select name="task_type"><option>Community Join</option><option>Follow</option><option>Visit Website</option><option>Social Engagement</option></select></label><label>Audience<select name="audience"><option value="general">General audience</option><option value="targeted">Targeted audience</option></select></label><label>Workers<input type="number" name="workers" min="1" max="100000" value="100" required></label><label>Price per worker (₦)<input type="number" name="price" min="1" value="30" required></label><label class="form-field-full">Brief<textarea name="description" rows="4" required placeholder="Describe the action and proof requirements"></textarea></label><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Submit for review</button></div></form>`).querySelector('#campaign-form').onsubmit = async e => { e.preventDefault(); const f=new FormData(e.currentTarget); try { await apiRequest('campaigns',{method:'POST',body:{title:f.get('title'),task_type:f.get('task_type'),audience:f.get('audience'),workers:Number(f.get('workers')),price_per_worker:Number(f.get('price')),description:f.get('description')}}); toast('Campaign submitted for moderation.'); document.querySelector('.modal-backdrop')?.remove(); navigate('campaigns'); } catch(error){toast(error.message,'error');} }; }
@@ -227,10 +422,81 @@ function fundingModal() { openModal('Fund advertiser wallet', `<form id="fund-fo
 function withdrawalModal() { openModal('Request withdrawal', `<form id="withdrawal-form" class="form-grid"><label>Amount (₦)<input name="amount" type="number" min="1000" required></label><label>Bank<select name="bank"><option value="">Select bank</option><option value="access">Access Bank</option><option value="gtb">GTBank</option><option value="first">First Bank</option><option value="opay">Opay</option></select></label><label>Account number<input name="account_number" inputmode="numeric" minlength="10" maxlength="10" required></label><label>Account name<input name="account_name" required></label><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Submit for review</button></div></form>`).querySelector('#withdrawal-form').onsubmit = async e => { e.preventDefault(); const f=new FormData(e.currentTarget); try { await apiRequest('withdrawals',{method:'POST',body:{amount:Number(f.get('amount')),bank:f.get('bank'),account_number:f.get('account_number'),account_name:f.get('account_name')}}); toast('Withdrawal submitted for admin review.'); document.querySelector('.modal-backdrop')?.remove(); } catch(error){toast(error.message,'error');} }; }
 async function checkin() { try { await apiRequest('wallet?action=checkin',{method:'POST'}); toast('Daily check-in recorded. ₦10 added to pending rewards.'); } catch(error){toast(error.message,'error');} }
 
-function announcementsView() { return `<div class="page-title"><div class="section-kicker">Platform updates</div><h1 style="font-size:2.5rem">Announcements</h1><p>Important updates, campaign news, and platform notices from the YOLOTASK team.</p></div><section class="card panel"><article class="list-item"><span><strong>Welcome to YOLOTASK</strong><span class="list-sub">Keep your profile interests current to see better task matches.</span></span><span class="badge live">Current</span></article><article class="list-item"><span><strong>Earners and advertisers, together</strong><span class="list-sub">Every campaign supports clear action, proof, and accountable rewards.</span></span><span class="badge">Platform</span></article></section>`; }
-function achievementsView() { return `<div class="page-title"><div class="section-kicker">Progress system</div><h1 style="font-size:2.5rem">Achievements</h1><p>Earn XP and unlock milestones through consistent, approved activity.</p></div><div class="feature-grid"><article class="card feature-card"><div class="icon-box">1</div><h3>First move</h3><p>Complete your first approved task.</p><span class="badge pending">0 / 1 completed</span></article><article class="card feature-card"><div class="icon-box">7</div><h3>Seven day rhythm</h3><p>Check in seven days in a row.</p><span class="badge pending">0 / 7 days</span></article><article class="card feature-card"><div class="icon-box">25</div><h3>Trusted earner</h3><p>Complete 25 approved tasks.</p><span class="badge pending">0 / 25 tasks</span></article></div>`; }
-function reputationView() { return `<div class="page-title"><div class="section-kicker">Trust signal</div><h1 style="font-size:2.5rem">Reputation</h1><p>Reputation is separate from leaderboard ranking and reflects reliable participation.</p></div><section class="card panel"><div class="section-kicker">Earner rank</div><h2 style="font-size:3rem">Bronze</h2><p class="muted">Complete approved tasks, maintain clean submissions, and keep your account in good standing to progress through Silver, Gold, Diamond, and Elite.</p><div class="progress"><i style="width:18%"></i></div><div class="list" style="margin-top:20px"><div class="list-item"><span>Approved tasks</span><strong>0</strong></div><div class="list-item"><span>Successful appeals</span><strong>0</strong></div><div class="list-item"><span>Current XP</span><strong>0</strong></div></div></section>`; }
-function analyticsView() { return `<div class="page-title"><div class="section-kicker">Performance</div><h1 style="font-size:2.5rem">Campaign analytics</h1><p>Understand reach, completion, approval, and spend across your promotion campaigns.</p></div><div class="metric-grid">${metric('Workers reached','0','Across live campaigns')+metric('Completion rate','—','Awaiting activity')+metric('Approval rate','—','Awaiting reviews')+metric('Wallet spend',money(0),'Ledger tracked')}</div><section class="card panel" style="margin-top:18px">${empty('Analytics will appear here','Launch a campaign and approved task activity will populate this workspace.')}</section>`; }
+let announcements = [];
+let announcementsLoaded = false;
+let announcementsLoading = false;
+async function ensureAnnouncementsLoaded(force = false) {
+  if ((announcementsLoaded && !force) || announcementsLoading) return announcements;
+  announcementsLoading = true;
+  try { const result = await apiRequest('notifications?action=announcements'); announcements = result.announcements || []; }
+  catch (error) { announcements = []; if (state.activeView === 'announcements') toast(error.message || 'Unable to load announcements.', 'error'); }
+  announcementsLoaded = true;
+  announcementsLoading = false;
+  if (state.activeView === 'announcements') render();
+  return announcements;
+}
+function announcementRow(a) {
+  return `<article class="list-item"><span><strong>${esc(a.title)}</strong><span class="list-sub">${esc(a.message)}</span></span><span class="badge${a.priority === 'high' ? ' live' : ''}">${esc(cap(a.audience))}</span></article>`;
+}
+function announcementsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Platform updates</div><h1 style="font-size:2.5rem">Announcements</h1><p>Important updates, campaign news, and platform notices from the YOLOTASK team.</p></div>';
+  if (announcementsLoading || !announcementsLoaded) return `${head}<section class="card panel"><p class="muted">Loading…</p></section>`;
+  if (!announcements.length) return `${head}<section class="card panel">${empty('No announcements right now', 'Platform news and updates will appear here.')}</section>`;
+  return `${head}<section class="card panel">${announcements.map(announcementRow).join('')}</section>`;
+}
+let achievements = [];
+let achievementsLoaded = false;
+let achievementsLoading = false;
+async function ensureAchievementsLoaded(force = false) {
+  if ((achievementsLoaded && !force) || achievementsLoading) return achievements;
+  achievementsLoading = true;
+  try { const result = await apiRequest('tasks?action=achievements'); achievements = result.achievements || []; }
+  catch (error) { achievements = []; if (state.activeView === 'achievements') toast(error.message || 'Unable to load achievements.', 'error'); }
+  achievementsLoaded = true;
+  achievementsLoading = false;
+  if (state.activeView === 'achievements') render();
+  return achievements;
+}
+function achievementCard(a) {
+  return `<article class="card feature-card"><div class="icon-box">${a.target}</div><h3>${esc(a.name)}</h3><p>${esc(a.description)}</p><span class="badge${a.earned ? ' approved' : ' pending'}">${a.earned ? `Earned · +${a.xp_reward} XP` : `${a.current} / ${a.target}`}</span></article>`;
+}
+function achievementsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Progress system</div><h1 style="font-size:2.5rem">Achievements</h1><p>Earn XP and unlock milestones through consistent, approved activity.</p></div>';
+  if (achievementsLoading || !achievementsLoaded) return `${head}<section class="card panel"><p class="muted">Loading…</p></section>`;
+  if (!achievements.length) return `${head}<section class="card panel">${empty('No achievements configured yet', 'Check back soon.')}</section>`;
+  return `${head}<div class="feature-grid">${achievements.map(achievementCard).join('')}</div>`;
+}
+// Rank thresholds are not defined anywhere in the schema (reputation_rank is
+// a plain column nothing currently updates), so this is a provisional,
+// clearly-labelled assumption for the progress bar only — swap in real
+// admin-configurable thresholds once that exists.
+const REPUTATION_THRESHOLDS = { bronze: 0, silver: 10, gold: 25, diamond: 60, elite: 150 };
+const REPUTATION_ORDER = ['bronze', 'silver', 'gold', 'diamond', 'elite'];
+function reputationView() {
+  const rank = (state.user?.reputation_rank || 'bronze').toLowerCase();
+  const xp = state.user?.xp ?? 0;
+  const rankIndex = Math.max(REPUTATION_ORDER.indexOf(rank), 0);
+  const nextRank = REPUTATION_ORDER[rankIndex + 1];
+  const own = leaderboardLoaded && state.user ? leaderboard.find(e => e.id === state.user.id) : null;
+  const tasksCompleted = own?.tasks_completed ?? 0;
+  const referralCount = own?.referral_count ?? 0;
+  const currentFloor = REPUTATION_THRESHOLDS[rank] ?? 0;
+  const nextCeiling = nextRank ? REPUTATION_THRESHOLDS[nextRank] : currentFloor;
+  const progressPct = nextRank ? Math.min(100, Math.round(((tasksCompleted - currentFloor) / (nextCeiling - currentFloor)) * 100)) : 100;
+  return `<div class="page-title"><div class="section-kicker">Trust signal</div><h1 style="font-size:2.5rem">Reputation</h1><p>Reputation is separate from leaderboard ranking and reflects reliable participation.</p></div><section class="card panel"><div class="section-kicker">Earner rank</div><h2 style="font-size:3rem">${esc(cap(rank))}</h2><p class="muted">${nextRank ? `${Math.max(nextCeiling - tasksCompleted, 0)} more approved task${nextCeiling - tasksCompleted === 1 ? '' : 's'} to reach ${cap(nextRank)}.` : 'You have reached the highest rank.'}</p><div class="progress"><i style="width:${Math.max(progressPct, 4)}%"></i></div><div class="list" style="margin-top:20px"><div class="list-item"><span>Approved tasks</span><strong>${tasksCompleted}</strong></div><div class="list-item"><span>Referrals</span><strong>${referralCount}</strong></div><div class="list-item"><span>Current XP</span><strong>${xp}</strong></div></div></section>`;
+}
+function analyticsView() {
+  const head = '<div class="page-title"><div class="section-kicker">Performance</div><h1 style="font-size:2.5rem">Campaign analytics</h1><p>Understand reach, completion, approval, and spend across your promotion campaigns.</p></div>';
+  if ((campaignsLoading || !campaignsLoaded) || (walletLoading || !walletLoaded)) return `${head}<section class="card panel"><p class="muted">Loading…</p></section>`;
+  const workersReached = campaigns.reduce((sum, c) => sum + (c.workers_completed || 0), 0);
+  const workerCapacity = campaigns.reduce((sum, c) => sum + (c.worker_limit || 0), 0);
+  const completionRate = workerCapacity ? `${Math.round((workersReached / workerCapacity) * 100)}%` : '—';
+  const walletSpend = walletData?.wallet?.locked_balance ?? 0;
+  const breakdown = campaigns.length
+    ? `<div class="list">${campaigns.map(c => `<div class="list-item"><span><strong>${esc(c.title)}</strong><span class="list-sub">${c.workers_completed || 0} / ${c.worker_limit} workers · ${esc(c.status)}</span></span><strong>${money((c.workers_completed || 0) * c.price_per_worker)}</strong></div>`).join('')}</div>`
+    : empty('Analytics will appear here', 'Launch a campaign and worker activity will populate this workspace.');
+  return `${head}<div class="metric-grid">${metric('Workers reached', String(workersReached), 'Across all campaigns') + metric('Completion rate', completionRate, 'Workers reached vs capacity') + metric('Approval rate', '—', 'Task review is not yet available') + metric('Wallet reserved', money(walletSpend), 'Locked for active campaigns')}</div><section class="card panel" style="margin-top:18px"><div class="panel-head"><h3>Spend by campaign</h3></div>${breakdown}</section>`;
+}
 
 const saved = localStorage.getItem('yolotask_session');
 if (saved) {
@@ -260,6 +526,15 @@ if (pageView === 'tasks' && state.user?.is_activated) ensureTasksLoaded();
 if (pageView === 'wallet' && state.user) ensureWalletLoaded();
 if (pageView === 'campaigns' && state.user) ensureCampaignsLoaded();
 if (pageView === 'leaderboard' && state.user) ensureLeaderboardLoaded();
+if (pageView === 'reputation' && state.user) ensureLeaderboardLoaded();
+if (pageView === 'referrals' && state.user) ensureReferralsLoaded();
+if (pageView === 'notifications' && state.user) ensureNotificationsLoaded();
+if (pageView === 'announcements' && state.user) ensureAnnouncementsLoaded();
+if (pageView === 'achievements' && state.user) ensureAchievementsLoaded();
+if (pageView === 'analytics' && state.user) { ensureCampaignsLoaded(); ensureWalletLoaded(); }
+if (pageView === 'users' && state.user) ensureAdminUsersLoaded();
+if (pageView === 'withdrawals' && state.user) ensureAdminWithdrawalsLoaded();
+if (pageView === 'settings' && state.user && state.role === 'admin') ensureAdminSettingsLoaded();
 window.addEventListener('popstate', () => {
   const file = window.location.pathname.split('/').pop() || 'index.html';
   const view = file.replace(/\.html$/, '') === 'index' ? 'overview' : file.replace(/\.html$/, '');
