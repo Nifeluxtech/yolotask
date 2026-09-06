@@ -135,7 +135,15 @@ export default async function handler(req, res) {
     if (action === 'session' && req.method === 'GET') {
       const { authUser, profile } = await requireUser(req);
       const dashboard_path = profile.role === 'admin' ? '/admin/index.html' : profile.role === 'advertiser' ? '/advertiser/index.html' : '/earner/index.html';
-      return ok(res, { user: profile, auth_user_id: authUser.id, dashboard_path });
+      let userInterests = [];
+      if (profile.role === 'earner') {
+        const { data: rows } = await adminClient
+          .from('profile_interests')
+          .select('interests(name)')
+          .eq('profile_id', profile.id);
+        userInterests = (rows || []).map(r => r.interests?.name).filter(Boolean);
+      }
+      return ok(res, { user: { ...profile, interests: userInterests }, auth_user_id: authUser.id, dashboard_path });
     }
 
     if (action === 'profile' && req.method === 'PATCH') {
