@@ -205,8 +205,35 @@ async function ensureCampaignsLoaded(force = false) {
   if (state.activeView === 'campaigns') render();
   return campaigns;
 }
+async function changeCampaignStatus(id, status, reason) {
+  try {
+    await apiRequest('campaigns?action=status', { method: 'PATCH', body: { campaign_id: id, status, reason: reason || null } });
+    const c = campaigns.find(x => x.id === id);
+    if (c) c.status = status;
+    toast(`Campaign ${status}.`);
+    render();
+  } catch (error) { toast(error.message || 'Unable to update campaign.', 'error'); }
+}
+function campaignActions(c) {
+  const btn = (status, label, kind = 'secondary') => `<button class="btn btn-${kind} btn-small" data-campaign-status="${c.id}" data-new-status="${status}">${label}</button>`;
+  if (state.role === 'advertiser') {
+    if (c.status === 'draft') return btn('submitted', 'Submit for review', 'primary');
+    if (c.status === 'rejected') return btn('submitted', 'Resubmit for review', 'primary');
+    if (c.status === 'live') return btn('paused', 'Pause') + btn('completed', 'Mark completed');
+    if (c.status === 'paused') return btn('live', 'Resume', 'primary') + btn('completed', 'Mark completed');
+    return '';
+  }
+  if (state.role === 'admin') {
+    if (c.status === 'submitted' || c.status === 'under_review') return btn('approved', 'Approve', 'primary') + btn('rejected', 'Reject');
+    if (c.status === 'approved') return btn('live', 'Publish live', 'primary');
+    if (c.status === 'live') return btn('paused', 'Pause');
+    if (c.status === 'paused') return btn('live', 'Resume', 'primary');
+  }
+  return '';
+}
 function campaignRow(c) {
-  return `<div class="list-item"><span><strong>${esc(c.title)}</strong><span class="list-sub">${c.worker_limit} workers · ${money(c.price_per_worker)}/worker</span></span><span class="badge${c.status === 'live' ? ' live' : ''}">${esc(c.status)}</span></div>`;
+  const reasonLine = c.status === 'rejected' && c.moderation_reason ? `<div class="muted" style="margin-top:6px;font-size:.85rem">Reason: ${esc(c.moderation_reason)}</div>` : '';
+  return `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:8px"><div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap"><span><strong>${esc(c.title)}</strong><span class="list-sub">${c.worker_limit} workers · ${money(c.price_per_worker)}/worker</span>${reasonLine}</span><span style="display:flex;gap:8px;align-items:center"><span class="badge${c.status === 'live' ? ' live' : ''}">${esc(c.status)}</span>${campaignActions(c)}</span></div></div>`;
 }
 function campaignsView() {
   const head = '<div class="page-title"><div class="section-kicker">Promotion studio</div><h1 style="font-size:2.5rem">Campaigns</h1><p>Build, moderate, and measure campaigns with server-side wallet reservation.</p></div>';
@@ -393,6 +420,15 @@ function bindEvents() {
       if (suspendTarget) { event.preventDefault(); toggleUserSuspend(suspendTarget.dataset.toggleSuspend, suspendTarget.dataset.suspend === '1'); return; }
       const reviewTarget = event.target.closest('[data-review-withdrawal]');
       if (reviewTarget) { event.preventDefault(); reviewWithdrawal(reviewTarget.dataset.reviewWithdrawal, reviewTarget.dataset.reviewStatus); return; }
+      const statusTarget = event.target.closest('[data-campaign-status]');
+      if (statusTarget) {
+        event.preventDefault();
+        const newStatus = statusTarget.dataset.newStatus;
+        const reason = newStatus === 'rejected' ? window.prompt('Reason for rejection (shown to the advertiser):') : null;
+        if (newStatus === 'rejected' && !reason) return;
+        changeCampaignStatus(statusTarget.dataset.campaignStatus, newStatus, reason);
+        return;
+      }
       const viewTarget = event.target.closest('[data-view]');
       if (viewTarget) { event.preventDefault(); navigate(viewTarget.dataset.view); }
     });
