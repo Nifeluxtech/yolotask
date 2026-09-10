@@ -453,7 +453,115 @@ function showAuthError(message) { const node = document.querySelector('#auth-err
 async function handleProfile(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const selected = form.getAll('interests'); if (selected.length && selected.length < 3) return toast('Choose at least 3 interests.', 'error'); try { const result = await apiRequest('auth?action=profile', { method:'PATCH', body:{ full_name:form.get('full_name'), gender:form.get('gender'), interests:selected } }); if (result.user) { state.user = { ...state.user, ...result.user, interests: selected.length ? selected : state.user?.interests }; } toast('Profile saved.'); render(); } catch (error) { toast(error.message, 'error'); } }
 async function handleSupport(event) { event.preventDefault(); const form = new FormData(event.currentTarget); try { await apiRequest('support', { method:'POST', body:{ subject:form.get('subject'), message:form.get('message') } }); event.currentTarget.reset(); toast('Support ticket submitted.'); } catch (error) { toast(error.message, 'error'); } }
 function handleAction(action) { if (action === 'login') { state.activeView='login'; render(); } else if (action === 'register' || action === 'advertiser') { state.activeView='register'; ensureInterestsLoaded(); render(); if (action === 'advertiser') document.querySelector('[name=role]').value='advertiser'; } else if (action === 'home') { state.user=null; state.activeView='landing'; render(); } else if (action === 'logout') { localStorage.removeItem('yolotask_session'); state.user=null; state.activeView='landing'; render(); toast('You have been signed out.'); } else if (action === 'new-campaign') newCampaignModal(); else if (action === 'fund') fundingModal(); else if (action === 'withdraw') withdrawalModal(); else if (action === 'checkin') checkin(); else if (action === 'activate') activate(); else if (action === 'copy-referral') { navigator.clipboard?.writeText(document.querySelector('#referral-link')?.value || ''); toast('Referral link copied.'); } else if (action === 'toggle-sidebar') { document.querySelector('.dashboard-shell')?.classList.toggle('sidebar-open'); } else if (action === 'theme') { const enabled = document.body.classList.toggle('dark-mode'); try { localStorage.setItem('yolotask_theme', enabled ? 'dark' : 'light'); } catch {} toast(enabled ? 'Dark mode enabled.' : 'Light mode enabled.'); if (state.activeView === 'settings') render(); } }
-function newCampaignModal() { openModal('Create campaign', `<form id="campaign-form" class="form-grid"><label class="form-field-full">Campaign name<input name="title" required placeholder="e.g. Join our founder community"></label><label>Task type<select name="task_type"><option>Community Join</option><option>Follow</option><option>Visit Website</option><option>Social Engagement</option></select></label><label>Audience<select name="audience"><option value="general">General audience</option><option value="targeted">Targeted audience</option></select></label><label>Workers<input type="number" name="workers" min="1" max="100000" value="100" required></label><label>Price per worker (₦)<input type="number" name="price" min="1" value="30" required></label><label class="form-field-full">Brief<textarea name="description" rows="4" required placeholder="Describe the action and proof requirements"></textarea></label><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Submit for review</button></div></form>`).querySelector('#campaign-form').onsubmit = async e => { e.preventDefault(); const f=new FormData(e.currentTarget); try { await apiRequest('campaigns',{method:'POST',body:{title:f.get('title'),task_type:f.get('task_type'),audience:f.get('audience'),workers:Number(f.get('workers')),price_per_worker:Number(f.get('price')),description:f.get('description')}}); toast('Campaign submitted for moderation.'); document.querySelector('.modal-backdrop')?.remove(); navigate('campaigns'); } catch(error){toast(error.message,'error');} }; }
+// General per-worker prices as specified by the business. Targeted audience
+// campaigns cost 3x the general price for the same task type. These are the
+// amounts reserved from the advertiser's wallet (campaigns.price_per_worker) —
+// note this is a separate figure from each task_type's seeded worker_payout,
+// which is what an earner is actually paid per completion. The two are not
+// currently reconciled; flagged in project notes as a follow-up decision.
+const TASK_TYPE_PRICING = {
+  'Community Join': { label: 'Community Join', price: 50 },
+  'Follow': { label: 'Follow', price: 30 },
+  'Visit Website': { label: 'Visit site & register', price: 100 },
+  'Social Engagement': { label: 'Social Engagement', price: 20 }
+};
+const TARGETED_MULTIPLIER = 3;
+function computeCampaignPrice(taskType, audience) {
+  const base = TASK_TYPE_PRICING[taskType]?.price || 0;
+  return audience === 'targeted' ? base * TARGETED_MULTIPLIER : base;
+}
+let campaignFormOptions = null;
+let campaignFormOptionsLoaded = false;
+async function ensureCampaignFormOptionsLoaded() {
+  if (campaignFormOptionsLoaded) return campaignFormOptions;
+  try { campaignFormOptions = await apiRequest('campaigns?action=form-options'); }
+  catch { campaignFormOptions = { interests: [], platform_fee_rate: 0.10 }; }
+  campaignFormOptionsLoaded = true;
+  return campaignFormOptions;
+}
+function newCampaignModal() {
+  const taskTypeOptions = Object.entries(TASK_TYPE_PRICING).map(([value, meta]) => `<option value="${esc(value)}">${esc(meta.label)} — ₦${meta.price}/worker general</option>`).join('');
+  const node = openModal('Create campaign', `<form id="campaign-form" class="form-grid">
+    <label class="form-field-full">Campaign name<input name="title" required placeholder="e.g. Join our founder community"></label>
+    <label>Task type<select name="task_type">${taskTypeOptions}</select></label>
+    <label>Audience<select name="audience"><option value="general">General audience</option><option value="targeted">Targeted audience (3x price)</option></select></label>
+    <label>Workers<input type="number" name="workers" min="1" max="100000" value="100" required></label>
+    <label>Price per worker (₦)<input id="campaign-price-display" value="₦50" disabled></label>
+    <div class="form-field-full" id="campaign-targeting" style="display:none">
+      <label>Gender targeting<select name="gender_target"><option value="all">All genders</option><option value="male">Male</option><option value="female">Female</option></select></label>
+      <label style="margin-top:10px;display:block">Interest targeting <span class="muted">Choose at least 1</span></label>
+      <div class="interest-grid" id="campaign-interest-grid"><p class="muted">Loading interests…</p></div>
+    </div>
+    <label class="form-field-full">Brief<textarea name="description" rows="4" required placeholder="Describe the action and proof requirements"></textarea></label>
+    <div class="form-actions form-field-full" style="align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn btn-secondary" type="button" id="campaign-calculate">Calculate total</button>
+      <span id="campaign-total-display" class="muted"></span>
+      <button class="btn btn-primary" type="submit" style="margin-left:auto">Submit for review</button>
+    </div>
+  </form>`);
+  const form = node.querySelector('#campaign-form');
+  const taskTypeSelect = form.querySelector('[name=task_type]');
+  const audienceSelect = form.querySelector('[name=audience]');
+  const priceDisplay = form.querySelector('#campaign-price-display');
+  const targetingSection = form.querySelector('#campaign-targeting');
+  const interestGridEl = form.querySelector('#campaign-interest-grid');
+  const totalDisplay = form.querySelector('#campaign-total-display');
+
+  function refreshPrice() {
+    const price = computeCampaignPrice(taskTypeSelect.value, audienceSelect.value);
+    priceDisplay.value = money(price);
+    totalDisplay.textContent = '';
+  }
+  function refreshTargetingVisibility() {
+    const targeted = audienceSelect.value === 'targeted';
+    targetingSection.style.display = targeted ? 'block' : 'none';
+    if (targeted && interestGridEl.dataset.loaded !== 'true') {
+      interestGridEl.dataset.loaded = 'true';
+      ensureCampaignFormOptionsLoaded().then(options => {
+        const list = options?.interests || [];
+        interestGridEl.innerHTML = list.length
+          ? list.map(i => `<label class="interest"><input type="checkbox" name="interest_id" value="${esc(i.id)}"><span>${esc(i.name)}</span></label>`).join('')
+          : '<p class="muted">No interests are configured yet.</p>';
+      });
+    }
+  }
+  taskTypeSelect.onchange = refreshPrice;
+  audienceSelect.onchange = () => { refreshPrice(); refreshTargetingVisibility(); };
+  refreshPrice();
+
+  form.querySelector('#campaign-calculate').onclick = async () => {
+    const workers = Number(form.querySelector('[name=workers]').value) || 0;
+    const price = computeCampaignPrice(taskTypeSelect.value, audienceSelect.value);
+    const options = await ensureCampaignFormOptionsLoaded();
+    const feeRate = options?.platform_fee_rate ?? 0.10;
+    const subtotal = workers * price;
+    const total = subtotal * (1 + feeRate);
+    totalDisplay.innerHTML = `${workers} workers × ${money(price)} = ${money(subtotal)} + ${Math.round(feeRate * 100)}% platform fee = <strong>${money(total)}</strong> required in your wallet`;
+  };
+
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const audience = f.get('audience');
+    const interestIds = f.getAll('interest_id');
+    if (audience === 'targeted' && !interestIds.length) return toast('Choose at least 1 interest to target.', 'error');
+    try {
+      await apiRequest('campaigns', { method: 'POST', body: {
+        title: f.get('title'),
+        task_type: f.get('task_type'),
+        audience,
+        workers: Number(f.get('workers')),
+        price_per_worker: computeCampaignPrice(f.get('task_type'), audience),
+        description: f.get('description'),
+        gender_target: audience === 'targeted' ? f.get('gender_target') : 'all',
+        interest_ids: audience === 'targeted' ? interestIds : []
+      } });
+      toast('Campaign submitted for moderation.');
+      document.querySelector('.modal-backdrop')?.remove();
+      navigate('campaigns');
+    } catch (error) { toast(error.message, 'error'); }
+  };
+}
 function fundingModal() { openModal('Fund advertiser wallet', `<form id="fund-form"><label>Amount in naira<input name="amount" type="number" min="100" required placeholder="10000"></label><p class="muted" style="font-size:.8rem">You will be redirected to Paystack for secure payment. The server verifies the reference before crediting your wallet.</p><div class="form-actions"><button class="btn btn-primary" type="submit">Continue to Paystack ↗</button></div></form>`).querySelector('#fund-form').onsubmit = async e => {e.preventDefault(); const amount=Number(new FormData(e.currentTarget).get('amount')); try { const result=await apiRequest('payments?action=initialize',{method:'POST',body:{amount}}); if(result.authorization_url) window.location.href=result.authorization_url; } catch(error){toast(error.message,'error');}}; }
 function withdrawalModal() { openModal('Request withdrawal', `<form id="withdrawal-form" class="form-grid"><label>Amount (₦)<input name="amount" type="number" min="1000" required></label><label>Bank<select name="bank"><option value="">Select bank</option><option value="access">Access Bank</option><option value="gtb">GTBank</option><option value="first">First Bank</option><option value="opay">Opay</option></select></label><label>Account number<input name="account_number" inputmode="numeric" minlength="10" maxlength="10" required></label><label>Account name<input name="account_name" required></label><div class="form-actions form-field-full"><button class="btn btn-primary" type="submit">Submit for review</button></div></form>`).querySelector('#withdrawal-form').onsubmit = async e => { e.preventDefault(); const f=new FormData(e.currentTarget); try { await apiRequest('withdrawals',{method:'POST',body:{amount:Number(f.get('amount')),bank:f.get('bank'),account_number:f.get('account_number'),account_name:f.get('account_name')}}); toast('Withdrawal submitted for admin review.'); document.querySelector('.modal-backdrop')?.remove(); } catch(error){toast(error.message,'error');} }; }
 async function checkin() { try { await apiRequest('wallet?action=checkin',{method:'POST'}); toast('Daily check-in recorded. ₦10 added to pending rewards.'); } catch(error){toast(error.message,'error');} }
