@@ -131,9 +131,11 @@ th { color:var(--muted); font-size:.72rem; text-transform:uppercase; letter-spac
 .auth-form > p { color:var(--muted); margin:0 0 26px; }
 .interest-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; max-height:245px; overflow:auto; padding:4px; }
 .interest { position:relative; }
-.interest input { position:absolute; opacity:0; }
-.interest span { display:block; padding:10px; border:1px solid var(--line); border-radius:10px; font-size:.78rem; font-weight:600; color:#52637b; transition:.18s; }
-.interest input:checked + span { border-color:var(--teal); background:#e9fbf8; color:var(--teal-dark); }
+.interest input { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; }
+.interest span { display:block; padding:10px; border:2px solid var(--line); border-radius:10px; font-size:.78rem; font-weight:600; color:#52637b; transition:.15s; }
+.interest input:checked + span { border-color:var(--teal); background:var(--teal); color:#fff; }
+.interest input:checked + span::before { content:"✓ "; }
+.interest input:active + span { transform:scale(.97); }
 .alert { padding:13px 15px; border-radius:11px; background:#fff7df; color:#8a6100; font-size:.85rem; margin-bottom:16px; }
 .empty { padding:36px 18px; text-align:center; color:var(--muted); border:1px dashed #cad5e3; border-radius:13px; }
 .empty strong { display:block; color:var(--ink); margin-bottom:5px; }
