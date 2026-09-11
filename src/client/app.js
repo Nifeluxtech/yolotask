@@ -545,7 +545,13 @@ function newCampaignModal() {
     const f = new FormData(e.currentTarget);
     const audience = f.get('audience');
     const interestIds = f.getAll('interest_id');
-    if (audience === 'targeted' && !interestIds.length) return toast('Choose at least 1 interest to target.', 'error');
+    if (audience === 'targeted' && !interestIds.length) {
+      interestGridEl.style.outline = '2px solid var(--danger)';
+      interestGridEl.style.borderRadius = '10px';
+      interestGridEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => { interestGridEl.style.outline = ''; }, 2500);
+      return toast('Choose at least 1 interest to target.', 'error');
+    }
     try {
       await apiRequest('campaigns', { method: 'POST', body: {
         title: f.get('title'),
@@ -559,7 +565,12 @@ function newCampaignModal() {
       } });
       toast('Campaign submitted for moderation.');
       document.querySelector('.modal-backdrop')?.remove();
-      navigate('campaigns');
+      // Avoid a jarring full-page scroll-to-top if the advertiser opened this
+      // modal from the Campaigns page itself (the common case) — just refresh
+      // the list in place. Only do a real navigation if they opened it from
+      // somewhere else (e.g. the Overview quick action).
+      if (state.activeView === 'campaigns') { ensureCampaignsLoaded(true); }
+      else { navigate('campaigns'); }
     } catch (error) { toast(error.message, 'error'); }
   };
 }
