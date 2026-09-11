@@ -238,12 +238,13 @@ function campaignRow(c) {
 function campaignsView() {
   const head = '<div class="page-title"><div class="section-kicker">Promotion studio</div><h1 style="font-size:2.5rem">Campaigns</h1><p>Build, moderate, and measure campaigns with server-side wallet reservation.</p></div>';
   const filterBtn = (id, label) => `<button class="btn btn-${campaignsFilter === id ? 'primary' : 'secondary'} btn-small" data-campaign-filter="${id}">${label}</button>`;
-  const toolbar = `<div class="toolbar"><div class="nav-actions">${filterBtn('all', 'All campaigns') + filterBtn('live', 'Live') + filterBtn('draft', 'Drafts')}</div><button class="btn btn-primary" data-action="new-campaign">+ New campaign</button></div>`;
+  const toolbar = `<div class="toolbar"><div class="nav-actions">${filterBtn('all', 'All campaigns') + filterBtn('live', 'Live') + filterBtn('draft', 'Drafts')}</div>${state.role === 'advertiser' ? '<button class="btn btn-primary" data-action="new-campaign">+ New campaign</button>' : ''}</div>`;
   if (campaignsLoading || !campaignsLoaded) return `${head}${toolbar}<section class="card panel"><p class="muted">Loading campaigns…</p></section>`;
   const filtered = campaignsFilter === 'live' ? campaigns.filter(c => c.status === 'live')
     : campaignsFilter === 'draft' ? campaigns.filter(c => c.status === 'draft')
     : campaigns;
-  return `${head}${toolbar}<section class="card panel"><div class="panel-head"><h3>Your campaigns</h3><span class="badge">${campaigns.length} campaign${campaigns.length === 1 ? '' : 's'}</span></div>${filtered.length ? `<div class="list">${filtered.map(campaignRow).join('')}</div>` : empty(campaignsFilter === 'all' ? 'No campaigns yet' : `No ${campaignsFilter} campaigns`, 'Create a campaign when your wallet is funded. All campaigns pass through moderation before going live.', '<button class="btn btn-primary btn-small" data-action="new-campaign">Create first campaign</button>')}</section>`;
+  const isAdmin = state.role === 'admin';
+  return `${head}${toolbar}<section class="card panel"><div class="panel-head"><h3>${isAdmin ? 'Campaign review queue' : 'Your campaigns'}</h3><span class="badge">${campaigns.length} campaign${campaigns.length === 1 ? '' : 's'}</span></div>${filtered.length ? `<div class="list">${filtered.map(campaignRow).join('')}</div>` : empty(campaignsFilter === 'all' ? 'No campaigns yet' : `No ${campaignsFilter} campaigns`, isAdmin ? 'Submitted campaigns will appear here for review.' : 'Create a campaign when your wallet is funded. All campaigns pass through moderation before going live.', isAdmin ? '' : '<button class="btn btn-primary btn-small" data-action="new-campaign">Create first campaign</button>')}</section>`;
 }
 function profileView() {
   const gender = state.user?.gender || 'prefer_not_to_say';
