@@ -63,4 +63,19 @@ module.exports = async (req, res) => {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  case 'get_withdrawals': {
+        const { data } = await supabaseAdmin
+          .from('withdrawals')
+          .select('*, profiles:user_id(full_name, email)')
+          .order('created_at', { ascending: false });
+        return sendSuccess(res, { withdrawals: data });
+      }
+      case 'get_users': {
+        const { data } = await supabaseAdmin
+          .from('profiles')
+          .select('id, full_name, email, role, is_suspended, created_at')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        return sendSuccess(res, { users: data });
+      }
 };
