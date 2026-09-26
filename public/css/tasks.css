@@ -93,3 +93,66 @@
   font-size: 14px;
   line-height: 1.6;
 }
+.submission-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.submission-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+.submission-campaign { font-weight: 600; color: var(--text-primary); }
+.submission-date { font-size: 12px; color: var(--text-secondary); }
+
+.submission-proof {
+  background: var(--bg-primary);
+  padding: 15px;
+  border-radius: 8px;
+  word-break: break-all;
+}
+
+.submission-proof a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.submission-proof a:hover { text-decoration: underline; }
+
+.submission-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.btn-approve {
+  background: var(--success);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-approve:hover { background: #059669; }
+
+.btn-reject {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-reject:hover { background: var(--error); color: white; }
