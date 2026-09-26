@@ -68,4 +68,17 @@ module.exports = async (req, res) => {
     console.error('Admin API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  case 'process_withdrawal': {
+        const { withdrawalId, action: wdAction } = req.body;
+        if (!withdrawalId || !wdAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+
+        const { error } = await supabaseAdmin.rpc('admin_process_withdrawal', {
+          p_withdrawal_id: withdrawalId,
+          p_admin_id: profile.id,
+          p_action: wdAction
+        });
+
+        if (error) throw error;
+        return sendSuccess(res, {}, `Withdrawal ${wdAction.toLowerCase()} successfully.`);
+  }
 };
