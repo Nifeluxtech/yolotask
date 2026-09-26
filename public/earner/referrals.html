@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Referrals & Check-in - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/wallet.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
+  </header>
+
+  <div class="dashboard-container">
+    <!-- Daily Check-in Section -->
+    <div style="background: linear-gradient(135deg, #00D4FF 0%, #0056b3 100%); border-radius:16px; padding:30px; text-align:center; margin-bottom:30px; color:white;">
+      <h2 style="margin-bottom:10px;">Daily Check-in</h2>
+      <p style="margin-bottom:20px; opacity:0.9;">Claim your free ₦10 reward every day!</p>
+      <button id="checkInBtn" class="btn-primary" style="background:white; color:#0056b3; width:auto; padding:12px 30px;">Check In Now</button>
+      <div id="checkInMsg" style="margin-top:15px; font-size:14px;"></div>
+    </div>
+
+    <!-- Referral Section -->
+    <h1 style="margin-bottom:20px;">Refer & Earn 150</h1>
+    <p style="color:var(--text-secondary); margin-bottom:20px;">Earn ₦150 when your referral completes their first withdrawal.</p>
+    
+    <div class="balance-card" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <div class="balance-label">Your Referral Code</div>
+        <div class="balance-amount" id="refCode" style="font-size:24px;">LOADING...</div>
+      </div>
+      <button class="btn-outline" onclick="copyCode()" style="margin:0;">Copy</button>
+    </div>
+
+    <div class="wallet-grid">
+      <div class="balance-card">
+        <div class="balance-label">Total Referred</div>
+        <div class="balance-amount" id="statTotal">0</div>
+      </div>
+      <div class="balance-card pending">
+        <div class="balance-label">Pending Rewards</div>
+        <div class="balance-amount" id="statPending">0</div>
+      </div>
+      <div class="balance-card" style="--accent: var(--success);">
+        <div class="balance-label">Completed (₦150 each)</div>
+        <div class="balance-amount" id="statCompleted">0</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+
+      // Load Referral Stats
+      try {
+        const res = await apiClient.request('referrals.js', { action: 'get_stats' });
+        document.getElementById('refCode').textContent = res.data.referral_code;
+        document.getElementById('statTotal').textContent = res.data.stats.total;
+        document.getElementById('statPending').textContent = res.data.stats.pending;
+        document.getElementById('statCompleted').textContent = res.data.stats.completed;
+      } catch (err) { console.error(err); }
+    })();
+
+    // Check-in Logic
+    document.getElementById('checkInBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('checkInBtn');
+      const msg = document.getElementById('checkInMsg');
+      btn.disabled = true; btn.textContent = 'Processing...'; msg.textContent = '';
+
+      try {
+        const res = await apiClient.request('referrals.js', { action: 'check_in' });
+        msg.textContent = `Success! ₦${res.data.reward} credited to your wallet.`;
+        msg.style.color = '#fff';
+        btn.textContent = 'Checked In';
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.style.color = '#ffcccc';
+        btn.disabled = false; btn.textContent = 'Check In Now';
+      }
+    });
+
+    function copyCode() {
+      const code = document.getElementById('refCode').textContent;
+      navigator.clipboard.writeText(code);
+      alert('Referral code copied!');
+    }
+  </script>
+</body>
+</html>
