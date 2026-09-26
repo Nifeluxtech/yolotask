@@ -1,0 +1,21 @@
+{
+  "name": "yolotask-mvp",
+  "version": "1.0.0",
+  "description": "YOLOTASK by Nifelux - Digital Task and Promotion Marketplace",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.6.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "vercel": "^32.6.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
