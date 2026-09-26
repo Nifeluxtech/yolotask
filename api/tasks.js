@@ -65,6 +65,17 @@ module.exports = async (req, res) => {
         
         if (!submissionId || !action) {
           return sendError(res, 'VALIDATION_ERROR', 'Submission ID and Action required.', 400);
+          // ... inside the 'review_submission' case, after successful review ...
+const { sendNotification } = require('../lib/notifications');
+
+// Fetch earner name for the message
+const { data: earnerProfile } = await supabaseAdmin.from('profiles').select('full_name').eq('id', submission.earner_id).single();
+
+if (action === 'APPROVED') {
+  await sendNotification(submission.earner_id, 'Task Approved!', `Your submission for "${submission.campaign_title}" was approved. Your reward has been credited.`, 'TASK');
+} else {
+  await sendNotification(submission.earner_id, 'Task Rejected', `Your submission for "${submission.campaign_title}" was rejected. Please ensure you follow instructions carefully.`, 'TASK');
+}
         }
 
         const result = await reviewSubmission(profile.id, submissionId, action);
