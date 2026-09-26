@@ -1,6 +1,7 @@
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
+const { getPlatformStats } = require('../lib/analytics');
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -14,13 +15,12 @@ module.exports = async (req, res) => {
 
     switch (action) {
       
+      // ... replace the existing get_dashboard_stats case with:
       case 'get_dashboard_stats': {
-        const [users, campaigns, submissions, withdrawals] = await Promise.all([
-          supabaseAdmin.from('profiles').select('id, role', { count: 'exact', head: true }),
-          supabaseAdmin.from('campaigns').select('id, status', { count: 'exact', head: true }).eq('status', 'LIVE'),
-          supabaseAdmin.from('task_submissions').select('id', { count: 'exact', head: true }).eq('status', 'PENDING_REVIEW'),
-          supabaseAdmin.from('withdrawals').select('id', { count: 'exact', head: true }).eq('status', 'PENDING')
-        ]);
+        const stats = await getPlatformStats();
+        // Add the previous counts back in here if needed, or expand getPlatformStats
+        return sendSuccess(res, { stats });
+      }
 
         return sendSuccess(res, {
           totalUsers: users.count,
