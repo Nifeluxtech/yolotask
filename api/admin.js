@@ -67,6 +67,30 @@ module.exports = async (req, res) => {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
     console.error('Admin API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
+    const { sendNotification, sendAnnouncement } = require('../lib/notifications');
+
+// Add new action for Admin Announcements
+case 'create_announcement': {
+  const { title, message, type } = req.body;
+  if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Title and message required.', 400);
+  
+  await sendAnnouncement(title, message, type);
+  return sendSuccess(res, {}, 'Announcement published successfully.');
+}
+
+// Inside 'review_campaign' action (after successful DB RPC call):
+if (reviewAction === 'APPROVED') {
+  await sendNotification(campaign.advertiser_id, 'Campaign Approved!', `Your campaign "${campaign.title}" is now LIVE and visible to earners.`, 'CAMPAIGN');
+} else if (reviewAction === 'REJECTED') {
+  await sendNotification(campaign.advertiser_id, 'Campaign Rejected', `Your campaign "${campaign.title}" was rejected. Reason: ${adminNote || 'See admin feedback.'}`, 'CAMPAIGN');
+}
+
+// Inside 'process_withdrawal' action (after successful DB RPC call):
+if (wdAction === 'COMPLETED') {
+  await sendNotification(withdrawal.user_id, 'Withdrawal Processed', `Your withdrawal of ₦${withdrawal.amount} has been successfully processed to your bank account.`, 'WALLET');
+} else if (wdAction === 'REJECTED') {
+  await sendNotification(withdrawal.user_id, 'Withdrawal Rejected', `Your withdrawal request of ₦${withdrawal.amount} was rejected. Funds have been returned to your available balance.`, 'WALLET');
+      }
   }
   case 'process_withdrawal': {
         const { withdrawalId, action: wdAction } = req.body;
@@ -80,5 +104,29 @@ module.exports = async (req, res) => {
 
         if (error) throw error;
         return sendSuccess(res, {}, `Withdrawal ${wdAction.toLowerCase()} successfully.`);
+    const { sendNotification, sendAnnouncement } = require('../lib/notifications');
+
+// Add new action for Admin Announcements
+case 'create_announcement': {
+  const { title, message, type } = req.body;
+  if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Title and message required.', 400);
+  
+  await sendAnnouncement(title, message, type);
+  return sendSuccess(res, {}, 'Announcement published successfully.');
+}
+
+// Inside 'review_campaign' action (after successful DB RPC call):
+if (reviewAction === 'APPROVED') {
+  await sendNotification(campaign.advertiser_id, 'Campaign Approved!', `Your campaign "${campaign.title}" is now LIVE and visible to earners.`, 'CAMPAIGN');
+} else if (reviewAction === 'REJECTED') {
+  await sendNotification(campaign.advertiser_id, 'Campaign Rejected', `Your campaign "${campaign.title}" was rejected. Reason: ${adminNote || 'See admin feedback.'}`, 'CAMPAIGN');
+}
+
+// Inside 'process_withdrawal' action (after successful DB RPC call):
+if (wdAction === 'COMPLETED') {
+  await sendNotification(withdrawal.user_id, 'Withdrawal Processed', `Your withdrawal of ₦${withdrawal.amount} has been successfully processed to your bank account.`, 'WALLET');
+} else if (wdAction === 'REJECTED') {
+  await sendNotification(withdrawal.user_id, 'Withdrawal Rejected', `Your withdrawal request of ₦${withdrawal.amount} was rejected. Funds have been returned to your available balance.`, 'WALLET');
+}
   }
 };
