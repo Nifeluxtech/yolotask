@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Announcements - YOLOTASK Admin</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+  <link rel="stylesheet" href="/css/notifications.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/admin/dashboard.html" class="header-logo">YOLOTASK <span style="font-size:12px; color:var(--error); font-weight:700;">ADMIN</span></a>
+  </header>
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <a href="/admin/dashboard.html" class="sidebar-link">Dashboard</a>
+      <a href="/admin/campaigns.html" class="sidebar-link">Campaign Reviews</a>
+      <a href="/admin/withdrawals.html" class="sidebar-link">Withdrawals</a>
+      <a href="/admin/announcements.html" class="sidebar-link active">Announcements</a>
+    </aside>
+
+    <main class="admin-content">
+      <h1 style="margin-bottom:20px;">Platform Announcements</h1>
+      
+      <div class="announce-form">
+        <h3 style="margin-bottom:15px;">Create New Announcement</h3>
+        <form id="announceForm">
+          <div class="form-group">
+            <label style="color:var(--text-secondary); font-size:14px; margin-bottom:8px; display:block;">Title</label>
+            <input type="text" id="annTitle" class="modal-input" placeholder="e.g., System Maintenance Notice" required />
+          </div>
+          <div class="form-group">
+            <label style="color:var(--text-secondary); font-size:14px; margin-bottom:8px; display:block;">Message</label>
+            <textarea id="annMessage" class="modal-input" style="min-height:100px;" placeholder="Enter announcement details..." required></textarea>
+          </div>
+          <div class="form-group">
+            <label style="color:var(--text-secondary); font-size:14px; margin-bottom:8px; display:block;">Type</label>
+            <select id="annType" class="modal-input">
+              <option value="GENERAL">General Update</option>
+              <option value="IMPORTANT">Important Notice</option>
+              <option value="PROMOTION">Promotion / Bonus</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-primary" style="width:auto; padding:10px 20px;">Publish Announcement</button>
+        </form>
+      </div>
+
+      <h3 style="margin-bottom:15px;">Recent Announcements</h3>
+      <div id="announcementsList">
+        <div style="color:var(--text-secondary);">Loading...</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('admin');
+      if (!profile) return;
+
+      // In a full implementation, fetch past announcements from the DB here.
+      document.getElementById('announcementsList').innerHTML = '<div style="color:var(--text-secondary);">No past announcements.</div>';
+    })();
+
+    document.getElementById('announceForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true; btn.textContent = 'Publishing...';
+
+      try {
+        await apiClient.request('admin.js', {
+          action: 'create_announcement',
+          title: document.getElementById('annTitle').value,
+          message: document.getElementById('annMessage').value,
+          type: document.getElementById('annType').value
+        });
+        alert('Announcement published successfully!');
+        window.location.reload();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false; btn.textContent = 'Publish Announcement';
+      }
+    });
+  </script>
+</body>
+</html>
