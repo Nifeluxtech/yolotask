@@ -93,4 +93,25 @@ module.exports = async (req, res) => {
     console.error('Auth API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  // Add to the switch statement in /api/auth.js
+case 'get_notifications': {
+  const { data, error } = await supabaseAdmin
+    .from('notifications')
+    .select('*')
+    .eq('user_id', profile.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  
+  if (error) throw error;
+  return sendSuccess(res, { notifications: data });
+}
+
+case 'mark_notifications_read': {
+  await supabaseAdmin
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('user_id', profile.id)
+    .eq('is_read', false);
+  return sendSuccess(res, {}, 'Notifications marked as read.');
+}
 };
