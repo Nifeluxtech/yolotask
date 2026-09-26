@@ -71,11 +71,24 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { withdrawals: data });
       }
       case 'get_users': {
-        const { data } = await supabaseAdmin
-          .from('profiles')
-          .select('id, full_name, email, role, is_suspended, created_at')
-          .order('created_at', { ascending: false })
-          .limit(100);
-        return sendSuccess(res, { users: data });
+        try {
+          // We temporarily omit 'role' from the select to see if the column itself is the blocker.
+          // If this works, we know 100% the 'role' column mapping is corrupted.
+          const { data, error } = await supabaseAdmin
+            .from('profiles')
+            .select('id, full_name, is_suspended, created_at') 
+            .order('created_at', { ascending: false })
+            .limit(100);
+
+          if (error) {
+            console.error("Supabase get_users error:", error);
+            return sendError(res, 'DATABASE_ERROR', error.message, 500);
+          }
+
+          return sendSuccess(res, { users: data });
+        } catch (err) {
+          console.error("API get_users crash:", err);
+          return sendError(res, 'INTERNAL_ERROR', 'Failed to fetch users.', 500);
+        }
       }
 };
