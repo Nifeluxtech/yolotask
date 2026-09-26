@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advertiser Dashboard - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/advertiser/dashboard.html" class="header-logo">YOLOTASK <span style="font-size:12px; color:var(--text-secondary); font-weight:400;">ADVERTISER</span></a>
+    <div class="header-user">
+      <span id="userName">Loading...</span>
+      <a href="/login.html" onclick="localStorage.clear()" style="color:var(--error); text-decoration:none; margin-left:10px;">Logout</a>
+    </div>
+  </header>
+
+  <div class="dashboard-container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h1>Advertiser Overview</h1>
+      <a href="/advertiser/create-campaign.html" class="btn-primary" style="width:auto; padding:10px 20px; margin:0;">+ Create Campaign</a>
+    </div>
+    
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Active Campaigns</div>
+        <div class="stat-value accent" id="activeCampaigns">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Workers Reached</div>
+        <div class="stat-value" id="totalWorkers">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Wallet Balance</div>
+        <div class="stat-value" id="walletBalance">₦0</div>
+      </div>
+    </div>
+
+    <h2 style="margin:30px 0 15px;">Recent Campaigns</h2>
+    <div id="recentCampaigns" style="color:var(--text-secondary);">Loading...</div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('advertiser');
+      if (!profile) return;
+      document.getElementById('userName').textContent = profile.full_name;
+      
+      // Fetch campaigns to populate dashboard
+      try {
+        const res = await apiClient.request('campaigns.js', { action: 'get_list' });
+        const campaigns = res.data.campaigns;
+        document.getElementById('activeCampaigns').textContent = campaigns.filter(c => c.status === 'LIVE').length;
+        document.getElementById('totalWorkers').textContent = campaigns.reduce((sum, c) => sum + c.completed_quantity, 0);
+        
+        // Render simple list
+        const list = document.getElementById('recentCampaigns');
+        if(campaigns.length === 0) list.innerHTML = 'No campaigns yet.';
+        else {
+          list.innerHTML = campaigns.slice(0, 5).map(c => `
+            <div style="background:var(--bg-secondary); padding:15px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-weight:600;">${c.title}</div>
+                <div style="font-size:12px; color:var(--text-secondary);">${c.task_types.name} • ${c.completed_quantity}/${c.target_quantity} completed</div>
+              </div>
+              <span class="status-badge status-${c.status.toLowerCase()}">${c.status}</span>
+            </div>
+          `).join('');
+        }
+      } catch(err) { console.error(err); }
+    })();
+  </script>
+</body>
+</html>
