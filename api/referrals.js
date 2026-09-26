@@ -5,7 +5,6 @@ const { supabaseAdmin } = require('../lib/supabase');
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
-
   const { action } = req.body;
 
   try {
@@ -13,41 +12,21 @@ module.exports = async (req, res) => {
     requireRole(profile, ['earner']);
 
     switch (action) {
-      
       case 'get_stats': {
-        // Get referral code and counts
-        const { data: referrals, error: refError } = await supabaseAdmin
-          .from('referrals')
-          .select('status')
-          .eq('referrer_id', profile.id);
-
-        if (refError) throw refError;
-
+        const { data: referrals } = await supabaseAdmin.from('referrals').select('status').eq('referrer_id', profile.id);
         const total = referrals.length;
         const completed = referrals.filter(r => r.status === 'COMPLETED').length;
-        const pending = referrals.filter(r => r.status === 'PENDING').length;
-
-        return sendSuccess(res, {
-          referral_code: profile.referral_code,
-          stats: { total, completed, pending }
-        });
+        return sendSuccess(res, { referral_code: profile.referral_code, stats: { total, completed, pending: total - completed } });
       }
-
       case 'check_in': {
-        const { data, error } = await supabaseAdmin.rpc('process_daily_checkin', {
-          p_user_id: profile.id
-        });
-
+        const { data, error } = await supabaseAdmin.rpc('process_daily_checkin', { p_user_id: profile.id });
         if (error) throw error;
-        return sendSuccess(res, { reward: data.reward }, 'Daily check-in successful!');
+        return sendSuccess(res, { reward: data.reward }, 'Checked in!');
       }
-
-      default:
-        return sendError(res, 'INVALID_ACTION', 'Unknown referral action.', 400);
+      default: return sendError(res, 'INVALID_ACTION', 'Unknown action.', 400);
     }
   } catch (err) {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
-    console.error('Referrals API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
 };
