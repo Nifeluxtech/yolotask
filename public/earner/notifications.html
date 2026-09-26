@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notifications - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/notifications.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
+    <div class="header-user"><span id="userName">Earner</span></div>
+  </header>
+
+  <div class="dashboard-container notif-container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h1>Notifications</h1>
+      <button class="btn-outline" style="padding:8px 16px; font-size:13px;" onclick="markAllRead()">Mark all as read</button>
+    </div>
+    
+    <div id="notifList">
+      <div class="empty-state">Loading notifications...</div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+      document.getElementById('userName').textContent = profile.full_name;
+
+      const list = document.getElementById('notifList');
+      try {
+        const res = await apiClient.request('auth.js', { action: 'get_notifications' });
+        const notifs = res.data.notifications;
+
+        if (notifs.length === 0) {
+          list.innerHTML = '<div class="empty-state">You have no notifications yet. Complete tasks to get started!</div>';
+          return;
+        }
+
+        list.innerHTML = notifs.map(n => `
+          <div class="notif-item ${n.is_read ? '' : 'unread'}">
+            <div class="notif-icon">${getIcon(n.type)}</div>
+            <div class="notif-content">
+              <div class="notif-title">${n.title}</div>
+              <div class="notif-message">${n.message}</div>
+              <div class="notif-time">${timeAgo(n.created_at)}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        list.innerHTML = `<div class="empty-state" style="color:var(--error);">Error loading notifications.</div>`;
+      }
+    })();
+
+    function getIcon(type) {
+      if (type === 'TASK') return '✓';
+      if (type === 'WALLET') return '';
+      if (type === 'REFERRAL') return '👥';
+      return '🔔';
+    }
+
+    function timeAgo(dateString) {
+      const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
+      if (seconds < 60) return 'Just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      return `${Math.floor(hours / 24)}d ago`;
+    }
+
+    async function markAllRead() {
+      try {
+        await apiClient.request('auth.js', { action: 'mark_notifications_read' });
+        window.location.reload();
+      } catch (err) { alert(err.message); }
+    }
+  </script>
+</body>
+</html>
