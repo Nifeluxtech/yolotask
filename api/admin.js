@@ -2,131 +2,65 @@ const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 const { getPlatformStats } = require('../lib/analytics');
+const { sendNotification, sendAnnouncement } = require('../lib/notifications');
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
-
   const { action } = req.body;
 
   try {
     const { profile } = await getAuthenticatedUser(req);
-    requireRole(profile, ['admin']); // STRICT ADMIN CHECK
+    requireRole(profile, ['admin']);
 
     switch (action) {
-      
-      // ... replace the existing get_dashboard_stats case with:
       case 'get_dashboard_stats': {
-        const stats = await getPlatformStats();
-        // Add the previous counts back in here if needed, or expand getPlatformStats
-        return sendSuccess(res, { stats });
+        return sendSuccess(res, { stats: await getPlatformStats() });
       }
-
-        return sendSuccess(res, {
-          totalUsers: users.count,
-          activeCampaigns: campaigns.count,
-          pendingSubmissions: submissions.count,
-          pendingWithdrawals: withdrawals.count
-        });
-      }
-
       case 'get_campaigns_for_review': {
-        const { data, error } = await supabaseAdmin
-          .from('campaigns')
-          .select(`
-            *,
-            advertiser:advertiser_id (full_name, email),
-            task_types:task_type_id (name)
-          `)
-          .eq('status', 'SUBMITTED')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        const { data } = await supabaseAdmin.from('campaigns').select('*, advertiser:advertiser_id(full_name), task_types:task_type_id(name)').eq('status', 'SUBMITTED').order('created_at', { ascending: false });
         return sendSuccess(res, { campaigns: data });
       }
-
       case 'review_campaign': {
-        const { campaignId, action: reviewAction, adminNote } = req.body;
-        if (!campaignId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing required fields.', 400);
-
-        const { data, error } = await supabaseAdmin.rpc('admin_review_campaign', {
-          p_campaign_id: campaignId,
-          p_admin_id: profile.id,
-          p_action: reviewAction,
-          p_admin_note: adminNote || null
-        });
-
+        const { campaignId, reviewAction, adminNote } = req.body;
+        if (!campaignId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+        
+        const { data: campaign } = await supabaseAdmin.from('campaigns').select('title, advertiser_id').eq('id', campaignId).single();
+        const { error } = await supabaseAdmin.rpc('admin_review_campaign', { p_campaign_id: campaignId, p_admin_id: profile.id, p_action: reviewAction, p_admin_note: adminNote });
         if (error) throw error;
-        return sendSuccess(res, {}, `Campaign ${reviewAction.toLowerCase()} successfully.`);
-      }
 
-      default:
-        return sendError(res, 'INVALID_ACTION', 'Unknown admin action.', 400);
+        if (reviewAction === 'APPROVED') await sendNotification(campaign.advertiser_id, 'Campaign Approved!', `Your campaign "${campaign.title}" is now LIVE.`, 'CAMPAIGN');
+        else if (reviewAction === 'REJECTED') await sendNotification(campaign.advertiser_id, 'Campaign Rejected', `Your campaign "${campaign.title}" was rejected.`, 'CAMPAIGN');
+        
+        return sendSuccess(res, {}, `Campaign ${reviewAction.toLowerCase()}.`);
+      }
+      case 'process_withdrawal': {
+        const { withdrawalId, action: wdAction } = req.body;
+        if (!withdrawalId || !wdAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+        
+        const { data: withdrawal } = await supabaseAdmin.from('withdrawals').select('user_id, amount').eq('id', withdrawalId).single();
+        const { error } = await supabaseAdmin.rpc('admin_process_withdrawal', { p_withdrawal_id: withdrawalId, p_admin_id: profile.id, p_action: wdAction });
+        if (error) throw error;
+
+        const msg = wdAction === 'COMPLETED' ? `Withdrawal of ₦${withdrawal.amount} processed.` : `Withdrawal rejected. Funds returned.`;
+        await sendNotification(withdrawal.user_id, wdAction === 'COMPLETED' ? 'Withdrawal Processed' : 'Withdrawal Rejected', msg, 'WALLET');
+        
+        return sendSuccess(res, {}, msg);
+      }
+      case 'create_announcement': {
+        const { title, message, type } = req.body;
+        if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+        await sendAnnouncement(title, message, type);
+        return sendSuccess(res, {}, 'Published.');
+      }
+      case 'get_leaderboard': {
+        const { data } = await supabaseAdmin.from('earner_reputation').select('*, profiles:user_id(full_name)').order('tasks_completed', { ascending: false }).limit(50);
+        return sendSuccess(res, { leaders: data });
+      }
+      default: return sendError(res, 'INVALID_ACTION', 'Unknown action.', 400);
     }
   } catch (err) {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
-    console.error('Admin API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
-    const { sendNotification, sendAnnouncement } = require('../lib/notifications');
-
-// Add new action for Admin Announcements
-case 'create_announcement': {
-  const { title, message, type } = req.body;
-  if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Title and message required.', 400);
-  
-  await sendAnnouncement(title, message, type);
-  return sendSuccess(res, {}, 'Announcement published successfully.');
-}
-
-// Inside 'review_campaign' action (after successful DB RPC call):
-if (reviewAction === 'APPROVED') {
-  await sendNotification(campaign.advertiser_id, 'Campaign Approved!', `Your campaign "${campaign.title}" is now LIVE and visible to earners.`, 'CAMPAIGN');
-} else if (reviewAction === 'REJECTED') {
-  await sendNotification(campaign.advertiser_id, 'Campaign Rejected', `Your campaign "${campaign.title}" was rejected. Reason: ${adminNote || 'See admin feedback.'}`, 'CAMPAIGN');
-}
-
-// Inside 'process_withdrawal' action (after successful DB RPC call):
-if (wdAction === 'COMPLETED') {
-  await sendNotification(withdrawal.user_id, 'Withdrawal Processed', `Your withdrawal of ₦${withdrawal.amount} has been successfully processed to your bank account.`, 'WALLET');
-} else if (wdAction === 'REJECTED') {
-  await sendNotification(withdrawal.user_id, 'Withdrawal Rejected', `Your withdrawal request of ₦${withdrawal.amount} was rejected. Funds have been returned to your available balance.`, 'WALLET');
-      }
-  }
-  case 'process_withdrawal': {
-        const { withdrawalId, action: wdAction } = req.body;
-        if (!withdrawalId || !wdAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
-
-        const { error } = await supabaseAdmin.rpc('admin_process_withdrawal', {
-          p_withdrawal_id: withdrawalId,
-          p_admin_id: profile.id,
-          p_action: wdAction
-        });
-
-        if (error) throw error;
-        return sendSuccess(res, {}, `Withdrawal ${wdAction.toLowerCase()} successfully.`);
-    const { sendNotification, sendAnnouncement } = require('../lib/notifications');
-
-// Add new action for Admin Announcements
-case 'create_announcement': {
-  const { title, message, type } = req.body;
-  if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Title and message required.', 400);
-  
-  await sendAnnouncement(title, message, type);
-  return sendSuccess(res, {}, 'Announcement published successfully.');
-}
-
-// Inside 'review_campaign' action (after successful DB RPC call):
-if (reviewAction === 'APPROVED') {
-  await sendNotification(campaign.advertiser_id, 'Campaign Approved!', `Your campaign "${campaign.title}" is now LIVE and visible to earners.`, 'CAMPAIGN');
-} else if (reviewAction === 'REJECTED') {
-  await sendNotification(campaign.advertiser_id, 'Campaign Rejected', `Your campaign "${campaign.title}" was rejected. Reason: ${adminNote || 'See admin feedback.'}`, 'CAMPAIGN');
-}
-
-// Inside 'process_withdrawal' action (after successful DB RPC call):
-if (wdAction === 'COMPLETED') {
-  await sendNotification(withdrawal.user_id, 'Withdrawal Processed', `Your withdrawal of ₦${withdrawal.amount} has been successfully processed to your bank account.`, 'WALLET');
-} else if (wdAction === 'REJECTED') {
-  await sendNotification(withdrawal.user_id, 'Withdrawal Rejected', `Your withdrawal request of ₦${withdrawal.amount} was rejected. Funds have been returned to your available balance.`, 'WALLET');
-}
   }
 };
