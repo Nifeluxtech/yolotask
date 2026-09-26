@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leaderboard - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
+  </header>
+
+  <div class="dashboard-container">
+    <h1 style="margin-bottom:10px;">Top Earners Leaderboard</h1>
+    <p style="color:var(--text-secondary); margin-bottom:30px;">The most active workers on YOLOTASK this month.</p>
+    
+    <div id="leaderboardList">
+      <div style="color:var(--text-secondary); text-align:center; padding:40px;">Loading leaderboard...</div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+
+      const list = document.getElementById('leaderboardList');
+      try {
+        // Fetch top 50 earners by tasks_completed
+        const { data, error } = await apiClient.request('admin.js', { action: 'get_leaderboard' }); 
+        // Note: You will need to add a simple 'get_leaderboard' action to /api/admin.js that selects from earner_reputation joined with profiles.
+        
+        if (data && data.leaders) {
+          list.innerHTML = `
+            <table class="data-table">
+              <thead><tr><th>Rank</th><th>User</th><th>Tasks Completed</th><th>Rank Tier</th></tr></thead>
+              <tbody>
+                ${data.leaders.map((u, i) => `
+                  <tr>
+                    <td data-label="Rank">#${i + 1}</td>
+                    <td data-label="User">${u.full_name.substring(0, 3)}***</td>
+                    <td data-label="Tasks">${u.tasks_completed}</td>
+                    <td data-label="Tier"><span class="status-badge status-live">${u.rank}</span></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        } else {
+          list.innerHTML = '<div style="color:var(--text-secondary); text-align:center;">No data available yet.</div>';
+        }
+      } catch (err) {
+        list.innerHTML = `<div style="color:var(--error);">Error: ${err.message}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
