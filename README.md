@@ -21,7 +21,7 @@
 
 1. Clone the repository:
 ```bash
-   git clone https://github.com/nifelux/yolotask.git
+   git clone https://github.com/nifeluxtech/yolotask.git
    cd yolotask
 ```
 2. Install dependencies:
