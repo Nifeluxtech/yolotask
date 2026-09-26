@@ -44,4 +44,14 @@ module.exports = async (req, res) => {
     console.error('Campaigns API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  const { getCampaignAnalytics } = require('../lib/analytics');
+
+// ... inside switch(action)
+      case 'get_analytics': {
+        const { campaignId } = req.body;
+        if (!campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
+        
+        const analytics = await getCampaignAnalytics(profile.id, campaignId);
+        return sendSuccess(res, { analytics });
+      }
 };
