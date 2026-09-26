@@ -7,45 +7,44 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/campaigns.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
 </head>
 <body>
-  <header class="app-header">
+  <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
     <a href="/advertiser/dashboard.html" class="header-logo">← Back</a>
   </header>
 
-  <div class="dashboard-container form-container" style="max-width:800px;">
+  <div class="dashboard-container form-container" style="max-width:800px; padding: 30px 20px;">
     <h1 style="margin-bottom:20px;">Create New Campaign</h1>
     
     <form id="campaignForm">
-      <div class="form-grid">
-        <div class="form-group full-width">
+      <div class="form-grid" style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+        <div class="form-group">
           <label>Campaign Title</label>
           <input type="text" id="title" required placeholder="e.g., Follow our Instagram Page" />
         </div>
         
-        <div class="form-group full-width">
+        <div class="form-group">
           <label>Task Type</label>
           <select id="task_type_id" required>
-            <option value="">Select task type...</option>
-            <!-- Populated by JS -->
+            <option value="">Loading task types...</option>
           </select>
         </div>
 
-        <div class="form-group full-width">
+        <div class="form-group">
           <label>Instructions for Workers</label>
-          <textarea id="instructions" required placeholder="Step 1: Click the link. Step 2: Click Follow..."></textarea>
-        </div>
-
-        <div class="form-group full-width">
-          <label>Destination Link</label>
-          <input type="url" id="destination_link" required placeholder="https://instagram.com/yourbrand" />
+          <textarea id="instructions" required placeholder="Step 1: Click the link..."></textarea>
         </div>
 
         <div class="form-group">
-          <label>Targeting Mode</label>
-          <label class="toggle-switch" style="margin-top:10px;">
-            <input type="checkbox" id="is_targeted" /> 
-            Enable Premium Targeting (Interests/Gender) - Costs 2x
+          <label>Destination Link</label>
+          <input type="url" id="destination_link" required placeholder="https://..." />
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-switch" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <input type="checkbox" id="is_targeted" style="width:auto;" /> 
+            <span>Enable Premium Targeting (Interests/Gender) - Costs 2x</span>
           </label>
         </div>
 
@@ -54,67 +53,102 @@
           <input type="number" id="target_quantity" min="1" max="100000" required placeholder="e.g., 100" />
         </div>
 
-        <div class="form-group full-width" id="targetingOptions" style="display:none;">
-          <label>Target Gender (Optional)</label>
-          <div style="display:flex; gap:15px; margin-top:10px;">
-            <label class="toggle-switch"><input type="checkbox" name="gender" value="male"> Male</label>
-            <label class="toggle-switch"><input type="checkbox" name="gender" value="female"> Female</label>
+        <!-- Targeting Options (Hidden by default) -->
+        <div class="form-group" id="targetingOptions" style="display:none; background: var(--bg-secondary); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
+          <label style="margin-bottom:10px; display:block;">Target Gender (Optional)</label>
+          <div style="display:flex; gap:15px; margin-bottom:20px;">
+            <label class="toggle-switch" style="display:flex; align-items:center; gap:5px;"><input type="checkbox" name="gender" value="male" style="width:auto;"> Male</label>
+            <label class="toggle-switch" style="display:flex; align-items:center; gap:5px;"><input type="checkbox" name="gender" value="female" style="width:auto;"> Female</label>
+          </div>
+
+          <label style="margin-bottom:10px; display:block;">Target Interests (Select at least one)</label>
+          <div id="interestsContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 200px; overflow-y: auto;">
+            <!-- Interests injected here -->
+            <div style="color:var(--text-secondary);">Loading interests...</div>
           </div>
         </div>
       </div>
 
-      <!-- Server-Side Calculated Budget Preview -->
-      <div class="budget-preview">
+      <div class="budget-preview" style="background: rgba(0, 212, 255, 0.05); border: 1px solid var(--accent); border-radius: 8px; padding: 15px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
         <div>
-          <div class="budget-label">Estimated Total Budget (Calculated on Server)</div>
-          <div style="font-size:12px; color:var(--text-secondary); margin-top:5px;">Includes platform margin. No hidden fees.</div>
+          <div style="font-size: 14px; color: var(--text-secondary);">Estimated Total Budget</div>
         </div>
-        <div class="budget-amount" id="budgetDisplay">₦0</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--accent);" id="budgetDisplay">₦0</div>
       </div>
 
-      <button type="submit" class="btn-primary" style="margin-top:30px;" id="submitBtn">Save as Draft</button>
+      <button type="submit" class="btn btn-primary w-full" style="margin-top:30px;" id="submitBtn">Save as Draft</button>
     </form>
   </div>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
-    // Mock task types for UI preview (Server validates actual pricing)
-    const taskTypes = [
-      { id: '1', name: 'Like a Post', base: 12, premium: 24 },
-      { id: '2', name: 'Follow a Page', base: 15, premium: 30 },
-      { id: '3', name: 'Join Community', base: 30, premium: 60 }
-    ];
+    let realTaskTypes = [];
+    let realInterests = [];
 
-    const typeSelect = document.getElementById('task_type_id');
-    taskTypes.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.id; opt.textContent = `${t.name} (₦${t.base} base / ₦${t.premium} premium)`;
-      typeSelect.appendChild(opt);
-    });
+    (async () => {
+      const profile = await checkAuthAndRedirect('advertiser');
+      if (!profile) return;
 
-    // Dynamic Budget Calculator (UI Only - Server enforces real math)
+      // Fetch Real Data
+      try {
+        const res = await apiClient.request('campaigns.js', { action: 'get_reference_data' });
+        realTaskTypes = res.data.task_types;
+        realInterests = res.data.interests;
+
+        // Populate Task Types
+        const typeSelect = document.getElementById('task_type_id');
+        typeSelect.innerHTML = '<option value="">Select task type...</option>';
+        realTaskTypes.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.id; // REAL UUID
+          opt.textContent = `${t.name} (₦${t.base_advertiser_cost} base / ₦${t.premium_advertiser_cost} premium)`;
+          opt.dataset.base = t.base_advertiser_cost;
+          opt.dataset.premium = t.premium_advertiser_cost;
+          typeSelect.appendChild(opt);
+        });
+
+        // Populate Interests
+        const intContainer = document.getElementById('interestsContainer');
+        intContainer.innerHTML = '';
+        realInterests.forEach(i => {
+          const label = document.createElement('label');
+          label.className = 'toggle-switch';
+          label.style.display = 'flex';
+          label.style.alignItems = 'center';
+          label.style.gap = '5px';
+          label.innerHTML = `<input type="checkbox" name="interest" value="${i.id}" style="width:auto;"> ${i.name}`;
+          intContainer.appendChild(label);
+        });
+
+      } catch (err) {
+        showToast('Failed to load form data', 'error');
+      }
+    })();
+
+    // Budget Calculator
     function updateBudget() {
-      const typeId = typeSelect.value;
+      const typeSelect = document.getElementById('task_type_id');
       const qty = parseInt(document.getElementById('target_quantity').value) || 0;
       const isTargeted = document.getElementById('is_targeted').checked;
       
       document.getElementById('targetingOptions').style.display = isTargeted ? 'block' : 'none';
 
-      if (typeId && qty > 0) {
-        const type = taskTypes.find(t => t.id === typeId);
-        const cost = isTargeted ? type.premium : type.base;
-        document.getElementById('budgetDisplay').textContent = '₦' + (cost * qty).toLocaleString();
+      if (typeSelect.value && qty > 0) {
+        const selectedOpt = typeSelect.options[typeSelect.selectedIndex];
+        const cost = isTargeted ? parseFloat(selectedOpt.dataset.premium) : parseFloat(selectedOpt.dataset.base);
+        document.getElementById('budgetDisplay').textContent = formatCurrency(cost * qty);
       } else {
-        document.getElementById('budgetDisplay').textContent = '₦0';
+        document.getElementById('budgetDisplay').textContent = '0';
       }
     }
 
-    typeSelect.addEventListener('change', updateBudget);
+    document.getElementById('task_type_id').addEventListener('change', updateBudget);
     document.getElementById('target_quantity').addEventListener('input', updateBudget);
     document.getElementById('is_targeted').addEventListener('change', updateBudget);
 
-    // Form Submission
+    // Form Submit
     document.getElementById('campaignForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('submitBtn');
@@ -122,22 +156,24 @@
 
       const isTargeted = document.getElementById('is_targeted').checked;
       const genders = Array.from(document.querySelectorAll('input[name="gender"]:checked')).map(cb => cb.value);
+      const interestIds = Array.from(document.querySelectorAll('input[name="interest"]:checked')).map(cb => cb.value);
 
       try {
         await apiClient.request('campaigns.js', {
           action: 'create',
           title: document.getElementById('title').value,
-          task_type_id: typeSelect.value,
+          task_type_id: document.getElementById('task_type_id').value, // Sends Real UUID now
           instructions: document.getElementById('instructions').value,
           destination_link: document.getElementById('destination_link').value,
           is_targeted: isTargeted,
           target_quantity: parseInt(document.getElementById('target_quantity').value),
-          target_genders: isTargeted ? genders : []
+          target_genders: isTargeted ? genders : [],
+          target_interest_ids: isTargeted ? interestIds : []
         });
-        alert('Campaign draft created!');
-        window.location.href = '/advertiser/campaigns.html';
+        showToast('Campaign draft created!', 'success');
+        setTimeout(() => window.location.href = '/advertiser/campaigns.html', 1000);
       } catch (err) {
-        alert(err.message);
+        showToast(err.message, 'error');
         btn.disabled = false; btn.textContent = 'Save as Draft';
       }
     });
