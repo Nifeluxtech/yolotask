@@ -5,88 +5,91 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboad.css" />
-  <link rel="stylesheet" href="/css/global.css" />
-<link rel="stylesheet" href="/css/mobile-nav.css" />
-<link rel="stylesheet" href="/css/ui-components.css" />
-<!-- Remove old auth.css/dashboard.css if they conflict, or merge them -->
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/tasks.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
 </head>
 <body>
-  <header class="app-header">
-    <a href="/earner/dashboard.html" class="header-logo">YOLOTASK</a>
-    <div class="header-user">
-      <span id="userName">Loading...</span>
-      <a href="/login.html" onclick="localStorage.clear()" style="color:var(--error); text-decoration:none; margin-left:10px;">Logout</a>
-    </div>
+  <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <div style="font-weight:800; color:var(--accent);">YOLOTASK</div>
+    <div class="header-user"><span id="userName">Loading...</span></div>
   </header>
 
-  <div class="dashboard-container">
+  <div class="container" style="padding: 30px 20px; max-width: 1200px; margin: 0 auto;">
     <h1 style="margin-bottom:20px;">Welcome Back</h1>
     
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Available Balance</div>
-        <div class="stat-value accent" id="walletBalance">0</div>
+    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">
+      <div class="card">
+        <div class="stat-label" style="color:var(--text-secondary); font-size:14px;">Available Balance</div>
+        <div class="stat-value accent" style="font-size:28px; font-weight:700; color:var(--accent);" id="walletBalance">₦0.00</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Tasks Completed</div>
-        <div class="stat-value" id="tasksCompleted">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Reputation Rank</div>
-        <div class="stat-value" id="repRank">Bronze</div>
+      <div class="card">
+        <div class="stat-label" style="color:var(--text-secondary); font-size:14px;">Reputation Rank</div>
+        <div class="stat-value" style="font-size:28px; font-weight:700;" id="repRank">Bronze</div>
       </div>
     </div>
 
-    <div style="display:flex; gap:15px; flex-wrap:wrap;">
-      <a href="/earner/tasks.html" class="btn-outline" style="padding:12px 24px; font-size:16px;">Browse Available Tasks</a>
-      <a href="/earner/wallet.html" class="btn-outline" style="padding:12px 24px; font-size:16px;">Withdraw Funds</a>
+    <div class="flex justify-between items-center" style="margin-bottom: 15px;">
+      <h2>Featured Tasks</h2>
+      <a href="/earner/tasks.html" class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;">View All</a>
+    </div>
+    
+    <div id="featuredTasks" class="task-feed" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+      <div class="skeleton skeleton-card"></div>
+      <div class="skeleton skeleton-card"></div>
     </div>
   </div>
 
+  <!-- Mobile Nav -->
+  <nav class="mobile-bottom-nav">
+    <a href="/earner/dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/earner/tasks.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
+    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
+    <a href="/earner/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
+  </nav>
+
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
-
       document.getElementById('userName').textContent = profile.full_name;
-      // In a real app, fetch wallet and stats from /api/wallet.js and /api/tasks.js
-      // For MVP structure, we initialize the UI.
+
+      try {
+        // Fetch Balance
+        const balRes = await apiClient.request('wallet.js', { action: 'get_balance' });
+        document.getElementById('walletBalance').textContent = formatCurrency(balRes.data.wallet.available_balance);
+
+        // Fetch Tasks (Limit to 3 for dashboard)
+        const taskRes = await apiClient.request('tasks.js', { action: 'get_feed' });
+        const tasks = taskRes.data.tasks.slice(0, 3); // Take top 3
+        const feed = document.getElementById('featuredTasks');
+
+        if (tasks.length === 0) {
+          feed.innerHTML = '<div style="color:var(--text-secondary);">No tasks available right now.</div>';
+        } else {
+          feed.innerHTML = tasks.map(task => `
+            <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
+              <div>
+                <span class="status-badge ${task.is_premium ? 'status-live' : 'status-draft'}" style="margin-bottom:10px; display:inline-block;">
+                  ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
+                </span>
+                <h3 style="margin-bottom:5px;">${task.title}</h3>
+                <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">${task.task_type}</p>
+              </div>
+              <div class="flex justify-between items-center">
+                <div style="font-size:18px; font-weight:700; color:var(--success);">${formatCurrency(task.reward)}</div>
+                <a href="/earner/task-details.html?id=${task.id}" class="btn btn-outline" style="padding:6px 12px; font-size:12px;">Start</a>
+              </div>
+            </div>
+          `).join('');
+        }
+      } catch (err) { console.error(err); }
     })();
   </script>
-  <!-- Mobile Bottom Navigation -->
-<nav class="mobile-bottom-nav">
-  <a href="/earner/dashboard.html" class="nav-item active">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-    <span>Home</span>
-  </a>
-  <a href="/earner/tasks.html" class="nav-item">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-    <span>Tasks</span>
-  </a>
-  <a href="/earner/wallet.html" class="nav-item">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path></svg>
-    <span>Wallet</span>
-  </a>
-  <a href="/earner/referrals.html" class="nav-item">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-    <span>Refer</span>
-  </a>
-  <a href="/earner/profile.html" class="nav-item">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-    <span>Profile</span>
-  </a>
-</nav>
-
-<script src="/js/ui.js"></script>
-<script>
-  // Example of replacing alert() with showToast()
-  // In your existing script tags, replace:
-  // alert('Success!'); 
-  // with:
-  // showToast('Success!', 'success');
-</script>
 </body>
 </html>
