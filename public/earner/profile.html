@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profile - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+</head>
+<body>
+  <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <div style="font-weight:800; color:var(--accent);">YOLOTASK</div>
+    <button class="btn btn-outline" style="padding:6px 12px; font-size:12px;" onclick="logout()">Logout</button>
+  </header>
+
+  <div class="container" style="padding: 30px 20px; max-width: 600px;">
+    <h1 style="margin-bottom: 30px;">My Profile</h1>
+    
+    <div class="card" style="margin-bottom: 20px;">
+      <div style="margin-bottom: 15px;">
+        <label style="display:block; color:var(--text-secondary); font-size:13px; margin-bottom:8px;">Full Name</label>
+        <div id="fullName" style="font-size:18px; font-weight:600;"></div>
+      </div>
+      <div style="margin-bottom: 15px;">
+        <label style="display:block; color:var(--text-secondary); font-size:13px; margin-bottom:8px;">Email Address</label>
+        <div id="email" style="font-size:16px;"></div>
+      </div>
+      <div style="margin-bottom: 15px;">
+        <label style="display:block; color:var(--text-secondary); font-size:13px; margin-bottom:8px;">Account Role</label>
+        <div id="role" style="font-size:16px; text-transform:capitalize;"></div>
+      </div>
+      <div>
+        <label style="display:block; color:var(--text-secondary); font-size:13px; margin-bottom:8px;">Member Since</label>
+        <div id="joined" style="font-size:16px;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom: 15px;">Security</h3>
+      <p style="color:var(--text-secondary); font-size:14px; margin-bottom:20px;">To change your password, please use the "Forgot Password" link on the login page.</p>
+      <a href="/forgot-password.html" class="btn btn-outline w-full">Change Password</a>
+    </div>
+  </div>
+
+  <!-- Mobile Nav -->
+  <nav class="mobile-bottom-nav">
+    <a href="/earner/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/earner/tasks.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
+    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
+    <a href="/earner/profile.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path></svg><span>Profile</span></a>
+  </nav>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+      document.getElementById('fullName').textContent = profile.full_name;
+      document.getElementById('email').textContent = profile.email; // Note: email comes from auth session, ensure it's passed or fetched
+      document.getElementById('role').textContent = profile.role;
+      document.getElementById('joined').textContent = formatDate(profile.created_at);
+    })();
+    function logout() { localStorage.clear(); window.location.href = '/login.html'; }
+  </script>
+</body>
+</html>
