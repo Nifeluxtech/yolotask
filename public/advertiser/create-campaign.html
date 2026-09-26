@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Create Campaign - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/campaigns.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/advertiser/dashboard.html" class="header-logo">← Back</a>
+  </header>
+
+  <div class="dashboard-container form-container" style="max-width:800px;">
+    <h1 style="margin-bottom:20px;">Create New Campaign</h1>
+    
+    <form id="campaignForm">
+      <div class="form-grid">
+        <div class="form-group full-width">
+          <label>Campaign Title</label>
+          <input type="text" id="title" required placeholder="e.g., Follow our Instagram Page" />
+        </div>
+        
+        <div class="form-group full-width">
+          <label>Task Type</label>
+          <select id="task_type_id" required>
+            <option value="">Select task type...</option>
+            <!-- Populated by JS -->
+          </select>
+        </div>
+
+        <div class="form-group full-width">
+          <label>Instructions for Workers</label>
+          <textarea id="instructions" required placeholder="Step 1: Click the link. Step 2: Click Follow..."></textarea>
+        </div>
+
+        <div class="form-group full-width">
+          <label>Destination Link</label>
+          <input type="url" id="destination_link" required placeholder="https://instagram.com/yourbrand" />
+        </div>
+
+        <div class="form-group">
+          <label>Targeting Mode</label>
+          <label class="toggle-switch" style="margin-top:10px;">
+            <input type="checkbox" id="is_targeted" /> 
+            Enable Premium Targeting (Interests/Gender) - Costs 2x
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label>Number of Workers</label>
+          <input type="number" id="target_quantity" min="1" max="100000" required placeholder="e.g., 100" />
+        </div>
+
+        <div class="form-group full-width" id="targetingOptions" style="display:none;">
+          <label>Target Gender (Optional)</label>
+          <div style="display:flex; gap:15px; margin-top:10px;">
+            <label class="toggle-switch"><input type="checkbox" name="gender" value="male"> Male</label>
+            <label class="toggle-switch"><input type="checkbox" name="gender" value="female"> Female</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Server-Side Calculated Budget Preview -->
+      <div class="budget-preview">
+        <div>
+          <div class="budget-label">Estimated Total Budget (Calculated on Server)</div>
+          <div style="font-size:12px; color:var(--text-secondary); margin-top:5px;">Includes platform margin. No hidden fees.</div>
+        </div>
+        <div class="budget-amount" id="budgetDisplay">₦0</div>
+      </div>
+
+      <button type="submit" class="btn-primary" style="margin-top:30px;" id="submitBtn">Save as Draft</button>
+    </form>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    // Mock task types for UI preview (Server validates actual pricing)
+    const taskTypes = [
+      { id: '1', name: 'Like a Post', base: 12, premium: 24 },
+      { id: '2', name: 'Follow a Page', base: 15, premium: 30 },
+      { id: '3', name: 'Join Community', base: 30, premium: 60 }
+    ];
+
+    const typeSelect = document.getElementById('task_type_id');
+    taskTypes.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id; opt.textContent = `${t.name} (₦${t.base} base / ₦${t.premium} premium)`;
+      typeSelect.appendChild(opt);
+    });
+
+    // Dynamic Budget Calculator (UI Only - Server enforces real math)
+    function updateBudget() {
+      const typeId = typeSelect.value;
+      const qty = parseInt(document.getElementById('target_quantity').value) || 0;
+      const isTargeted = document.getElementById('is_targeted').checked;
+      
+      document.getElementById('targetingOptions').style.display = isTargeted ? 'block' : 'none';
+
+      if (typeId && qty > 0) {
+        const type = taskTypes.find(t => t.id === typeId);
+        const cost = isTargeted ? type.premium : type.base;
+        document.getElementById('budgetDisplay').textContent = '₦' + (cost * qty).toLocaleString();
+      } else {
+        document.getElementById('budgetDisplay').textContent = '₦0';
+      }
+    }
+
+    typeSelect.addEventListener('change', updateBudget);
+    document.getElementById('target_quantity').addEventListener('input', updateBudget);
+    document.getElementById('is_targeted').addEventListener('change', updateBudget);
+
+    // Form Submission
+    document.getElementById('campaignForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true; btn.textContent = 'Creating...';
+
+      const isTargeted = document.getElementById('is_targeted').checked;
+      const genders = Array.from(document.querySelectorAll('input[name="gender"]:checked')).map(cb => cb.value);
+
+      try {
+        await apiClient.request('campaigns.js', {
+          action: 'create',
+          title: document.getElementById('title').value,
+          task_type_id: typeSelect.value,
+          instructions: document.getElementById('instructions').value,
+          destination_link: document.getElementById('destination_link').value,
+          is_targeted: isTargeted,
+          target_quantity: parseInt(document.getElementById('target_quantity').value),
+          target_genders: isTargeted ? genders : []
+        });
+        alert('Campaign draft created!');
+        window.location.href = '/advertiser/campaigns.html';
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false; btn.textContent = 'Save as Draft';
+      }
+    });
+  </script>
+</body>
+</html>
