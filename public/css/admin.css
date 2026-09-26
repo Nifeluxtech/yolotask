@@ -1,0 +1,41 @@
+/* admin.css */
+.admin-layout { display: flex; min-height: 100vh; }
+.admin-sidebar {
+  width: 250px; background: var(--bg-secondary); border-right: 1px solid var(--border);
+  padding: 20px; display: flex; flex-direction: column; gap: 10px;
+}
+@media (max-width: 768px) { .admin-sidebar { display: none; } } /* Hide sidebar on mobile, use top nav */
+
+.sidebar-link {
+  color: var(--text-secondary); text-decoration: none; padding: 12px; border-radius: 8px;
+  font-weight: 500; transition: all 0.2s;
+}
+.sidebar-link:hover, .sidebar-link.active { background: rgba(0, 212, 255, 0.1); color: var(--accent); }
+
+.admin-content { flex: 1; padding: 30px; overflow-y: auto; }
+
+.data-table { width: 100%; border-collapse: collapse; background: var(--bg-secondary); border-radius: 12px; overflow: hidden; }
+.data-table th, .data-table td { padding: 15px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+.data-table th { background: var(--bg-primary); color: var(--text-secondary); font-weight: 600; }
+
+@media (max-width: 768px) {
+  .data-table, .data-table tbody, .data-table tr, .data-table td { display: block; width: 100%; }
+  .data-table thead { display: none; }
+  .data-table tr { margin-bottom: 15px; border: 1px solid var(--border); border-radius: 8px; padding: 15px; }
+  .data-table td { border: none; padding: 8px 0; display: flex; justify-content: space-between; }
+  .data-table td::before { content: attr(data-label); font-weight: 600; color: var(--text-secondary); }
+}
+
+.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+.btn-approve { background: var(--success); color: white; }
+.btn-reject { background: var(--error); color: white; margin-left: 8px; }
+.btn-info { background: #3B82F6; color: white; margin-left: 8px; }
+
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7);
+  display: flex; justify-content: center; align-items: center; z-index: 1000;
+}
+.modal-content {
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;
+  padding: 30px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto;
+}
