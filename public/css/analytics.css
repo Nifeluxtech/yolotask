@@ -1,0 +1,44 @@
+/* analytics.css */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.metric-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.metric-value { font-size: 28px; font-weight: 700; color: var(--accent); margin-bottom: 5px; }
+.metric-label { font-size: 13px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Pure CSS Bar Chart */
+.chart-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 25px;
+  margin-bottom: 30px;
+}
+
+.chart-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; color: var(--text-primary); }
+
+.bar-chart { display: flex; align-items: flex-end; justify-content: space-around; height: 200px; gap: 20px; }
+.bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; justify-content: flex-end; }
+.bar { width: 100%; max-width: 60px; border-radius: 6px 6px 0 0; transition: height 0.5s ease; position: relative; }
+.bar-value { position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.bar-label { margin-top: 10px; font-size: 12px; color: var(--text-secondary); text-align: center; }
+
+.bar.approved { background: var(--success); }
+.bar.rejected { background: var(--error); }
+.bar.pending { background: #F59E0B; }
+
+/* Progress Bar for Completion */
+.progress-container { margin-top: 15px; }
+.progress-bar-bg { width: 100%; height: 8px; background: var(--bg-primary); border-radius: 4px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; }
