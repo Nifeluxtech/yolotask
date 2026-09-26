@@ -53,4 +53,21 @@ module.exports = async (req, res) => {
     console.error('Tasks API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  case 'get_submissions': {
+        requireRole(profile, ['advertiser']);
+        const submissions = await getAdvertiserSubmissions(profile.id);
+        return sendSuccess(res, { submissions });
+      }
+
+      case 'review_submission': {
+        requireRole(profile, ['advertiser']);
+        const { submissionId, action } = req.body;
+        
+        if (!submissionId || !action) {
+          return sendError(res, 'VALIDATION_ERROR', 'Submission ID and Action required.', 400);
+        }
+
+        const result = await reviewSubmission(profile.id, submissionId, action);
+        return sendSuccess(res, result, `Task ${action.toLowerCase()} successfully.`);
+      }
 };
