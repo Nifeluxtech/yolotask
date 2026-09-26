@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Details - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/tasks.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/earner/tasks.html" class="header-logo">← Back to Tasks</a>
+  </header>
+
+  <div class="dashboard-container form-container">
+    <div id="taskContent">
+      <!-- Populated by JS -->
+    </div>
+
+    <form id="submitForm" style="display:none; margin-top:30px;">
+      <div class="form-group">
+        <label style="color:var(--text-secondary); margin-bottom:10px; display:block;">
+          Paste your proof link below (e.g., link to your profile, post, or screenshot URL):
+        </label>
+        <input type="url" id="proofUrl" placeholder="https://..." required style="width:100%; padding:14px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; color:white;" />
+      </div>
+      <button type="submit" class="btn-primary" style="margin-top:20px;">Submit Proof</button>
+    </form>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const taskId = urlParams.get('id');
+
+      if (!taskId) {
+        window.location.href = '/earner/tasks.html';
+        return;
+      }
+
+      try {
+        const res = await apiClient.request('tasks.js', { action: 'get_details', taskId });
+        const task = res.data.task;
+        const content = document.getElementById('taskContent');
+
+        content.innerHTML = `
+          <span class="task-type-badge ${task.is_premium ? 'premium' : ''}" style="margin-bottom:15px; display:inline-block;">
+            ${task.is_premium ? '★ PREMIUM TASK' : 'GENERAL TASK'}
+          </span>
+          <h1 style="margin-bottom:10px;">${task.title}</h1>
+          <h2 style="color:var(--success); margin-bottom:20px;">Reward: ${formatCurrency(task.reward)}</h2>
+          
+          <div class="instruction-box">
+            <strong>Instructions:</strong><br/>
+            ${task.instructions}
+          </div>
+
+          ${task.destination_link ? `<a href="${task.destination_link}" target="_blank" class="btn-outline" style="display:inline-block; margin-bottom:20px;">Open Destination Link </a>` : ''}
+        `;
+
+        document.getElementById('submitForm').style.display = 'block';
+
+        document.getElementById('submitForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const btn = e.target.querySelector('button');
+          btn.disabled = true; btn.textContent = 'Submitting...';
+
+          try {
+            await apiClient.request('tasks.js', { 
+              action: 'submit', 
+              taskId, 
+              proofUrl: document.getElementById('proofUrl').value 
+            });
+            alert('Task submitted successfully! Wait for advertiser approval.');
+            window.location.href = '/earner/tasks.html';
+          } catch (err) {
+            alert(err.message);
+            btn.disabled = false; btn.textContent = 'Submit Proof';
+          }
+        });
+
+      } catch (err) {
+        document.getElementById('taskContent').innerHTML = `<div style="color:var(--error);">${err.message}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
