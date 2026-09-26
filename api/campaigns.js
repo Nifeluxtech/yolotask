@@ -37,4 +37,11 @@ module.exports = async (req, res) => {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  case 'get_reference_data': {
+        const [types, interests] = await Promise.all([
+          supabaseAdmin.from('task_types').select('*').eq('is_active', true),
+          supabaseAdmin.from('interests').select('*').eq('is_active', true)
+        ]);
+        return sendSuccess(res, { task_types: types.data, interests: interests.data });
+  }
 };
