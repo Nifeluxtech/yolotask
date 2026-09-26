@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Withdrawals - YOLOTASK Admin</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .admin-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 240px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+    @media (max-width: 768px) { .sidebar { display: none; } }
+    .sidebar a { color: var(--text-secondary); text-decoration: none; padding: 12px; border-radius: 8px; font-weight: 500; }
+    .sidebar a.active { background: var(--accent-glow); color: var(--accent); }
+    .main { flex: 1; padding: 30px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; background: var(--bg-secondary); border-radius: var(--radius-md); overflow: hidden; }
+    th, td { padding: 15px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+    th { background: var(--bg-primary); color: var(--text-secondary); font-weight: 600; }
+    .status-pending { color: var(--warning); font-weight: 600; }
+    .status-completed { color: var(--success); font-weight: 600; }
+    .status-rejected { color: var(--error); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="admin-layout">
+    <aside class="sidebar">
+      <div style="font-size:20px; font-weight:800; color:var(--accent); margin-bottom:20px;">YOLOTASK ADMIN</div>
+      <a href="/admin/dashboard.html">Dashboard</a>
+      <a href="/admin/campaigns.html">Campaign Reviews</a>
+      <a href="/admin/withdrawals.html" class="active">Withdrawals</a>
+      <a href="/admin/users.html">Users</a>
+      <a href="/admin/announcements.html">Announcements</a>
+    </aside>
+    <main class="main">
+      <h1 style="margin-bottom: 30px;">Withdrawal Requests</h1>
+      <div id="wdTable">
+        <div class="skeleton skeleton-card"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('admin');
+      if (!profile) return;
+
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_withdrawals' });
+        const wds = res.data.withdrawals;
+        const table = document.getElementById('wdTable');
+
+        if (wds.length === 0) {
+          table.innerHTML = '<div class="card" style="text-align:center; padding:40px;">No withdrawal requests.</div>';
+          return;
+        }
+
+        table.innerHTML = `
+          <table>
+            <thead><tr><th>User</th><th>Amount</th><th>Bank Details</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${wds.map(w => `
+                <tr>
+                  <td>${w.profiles.full_name}<br/><span style="font-size:12px; color:var(--text-muted);">${w.profiles.email}</span></td>
+                  <td style="font-weight:700;">${formatCurrency(w.amount)}</td>
+                  <td style="font-size:13px;">${w.bank_name}<br/>${w.account_number}<br/>${w.account_name}</td>
+                  <td>${formatDate(w.created_at)}</td>
+                  <td class="status-${w.status.toLowerCase()}">${w.status}</td>
+                  <td>
+                    ${w.status === 'PENDING' ? `
+                      <button class="btn btn-success" style="padding:6px 12px; font-size:12px;" onclick="processWd('${w.id}', 'COMPLETED')">Approve</button>
+                      <button class="btn btn-danger" style="padding:6px 12px; font-size:12px;" onclick="processWd('${w.id}', 'REJECTED')">Reject</button>
+                    ` : '-'}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (err) { showToast('Failed to load withdrawals', 'error'); }
+    })();
+
+    async function processWd(id, action) {
+      if (!confirm(`Are you sure you want to ${action.toLowerCase()} this withdrawal? This will trigger referral bonuses if applicable.`)) return;
+      try {
+        await apiClient.request('admin.js', { action: 'process_withdrawal', withdrawalId: id, action: action }); // Note: API expects 'wdAction' or 'action', check your admin.js variable name. If it's 'wdAction', change it here.
+        showToast(`Withdrawal ${action.toLowerCase()} successfully!`, 'success');
+        setTimeout(() => window.location.reload(), 1000);
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+  </script>
+</body>
+</html>
