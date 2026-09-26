@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tasks - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/tasks.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/earner/dashboard.html" class="header-logo">YOLOTASK</a>
+    <div class="header-user"><span id="userName">User</span></div>
+  </header>
+
+  <div class="dashboard-container">
+    <h1 style="margin-bottom:20px;">Available Tasks</h1>
+    <p style="color:var(--text-secondary); margin-bottom:30px;">Complete tasks and get paid. Premium tasks pay double!</p>
+    
+    <div id="taskFeed" class="task-feed">
+      <!-- Populated by JS -->
+      <div style="color:var(--text-secondary);">Loading tasks...</div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+      document.getElementById('userName').textContent = profile.full_name;
+
+      try {
+        const res = await apiClient.request('tasks.js', { action: 'get_feed' });
+        const feed = document.getElementById('taskFeed');
+        
+        if (res.data.tasks.length === 0) {
+          feed.innerHTML = '<div style="color:var(--text-secondary);">No tasks available right now. Check back later!</div>';
+          return;
+        }
+
+        feed.innerHTML = res.data.tasks.map(task => `
+          <div class="task-card">
+            <div class="task-header">
+              <span class="task-type-badge ${task.is_premium ? 'premium' : ''}">
+                ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
+              </span>
+            </div>
+            <div class="task-title">${task.title}</div>
+            <div class="task-meta">
+              <div>${task.task_type}</div>
+              <div style="margin-top:5px;">${task.slots_left} slots remaining</div>
+            </div>
+            <div class="task-footer">
+              <div class="task-reward">${formatCurrency(task.reward)}</div>
+              <a href="/earner/task-details.html?id=${task.id}" class="btn-outline">Start Task</a>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        document.getElementById('taskFeed').innerHTML = `<div style="color:var(--error);">Error loading tasks: ${err.message}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
