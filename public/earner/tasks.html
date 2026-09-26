@@ -7,62 +7,95 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="stylesheet" href="/css/tasks.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px; }
+    .tab-btn { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 8px 16px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
+    .tab-btn.active { background: var(--accent); color: var(--bg-primary); border-color: var(--accent); font-weight: 600; }
+  </style>
 </head>
 <body>
-  <header class="app-header">
-    <a href="/earner/dashboard.html" class="header-logo">YOLOTASK</a>
-    <div class="header-user"><span id="userName">User</span></div>
+  <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
   </header>
 
-  <div class="dashboard-container">
-    <h1 style="margin-bottom:20px;">Available Tasks</h1>
-    <p style="color:var(--text-secondary); margin-bottom:30px;">Complete tasks and get paid. Premium tasks pay double!</p>
+  <div class="container" style="padding: 30px 20px; max-width: 1200px; margin: 0 auto;">
+    <h1 style="margin-bottom:10px;">Available Tasks</h1>
     
-    <div id="taskFeed" class="task-feed">
-      <!-- Populated by JS -->
-      <div style="color:var(--text-secondary);">Loading tasks...</div>
+    <!-- Filter Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="filterTasks('all', this)">All Tasks</button>
+      <button class="tab-btn" onclick="filterTasks('general', this)">General</button>
+      <button class="tab-btn" onclick="filterTasks('premium', this)">★ Premium (2x Pay)</button>
+    </div>
+
+    <div id="taskFeed" class="task-feed" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+      <div class="skeleton skeleton-card"></div>
     </div>
   </div>
 
+  <nav class="mobile-bottom-nav">
+    <a href="/earner/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/earner/tasks.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
+    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
+    <a href="/earner/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
+  </nav>
+
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
+    let allTasks = [];
+
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
-      document.getElementById('userName').textContent = profile.full_name;
 
       try {
         const res = await apiClient.request('tasks.js', { action: 'get_feed' });
-        const feed = document.getElementById('taskFeed');
-        
-        if (res.data.tasks.length === 0) {
-          feed.innerHTML = '<div style="color:var(--text-secondary);">No tasks available right now. Check back later!</div>';
-          return;
-        }
-
-        feed.innerHTML = res.data.tasks.map(task => `
-          <div class="task-card">
-            <div class="task-header">
-              <span class="task-type-badge ${task.is_premium ? 'premium' : ''}">
-                ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
-              </span>
-            </div>
-            <div class="task-title">${task.title}</div>
-            <div class="task-meta">
-              <div>${task.task_type}</div>
-              <div style="margin-top:5px;">${task.slots_left} slots remaining</div>
-            </div>
-            <div class="task-footer">
-              <div class="task-reward">${formatCurrency(task.reward)}</div>
-              <a href="/earner/task-details.html?id=${task.id}" class="btn-outline">Start Task</a>
-            </div>
-          </div>
-        `).join('');
+        allTasks = res.data.tasks;
+        renderTasks('all');
       } catch (err) {
-        document.getElementById('taskFeed').innerHTML = `<div style="color:var(--error);">Error loading tasks: ${err.message}</div>`;
+        document.getElementById('taskFeed').innerHTML = `<div style="color:var(--error);">Error loading tasks.</div>`;
       }
     })();
+
+    function renderTasks(filter) {
+      const feed = document.getElementById('taskFeed');
+      let filtered = allTasks;
+
+      if (filter === 'general') filtered = allTasks.filter(t => !t.is_premium);
+      if (filter === 'premium') filtered = allTasks.filter(t => t.is_premium);
+
+      if (filtered.length === 0) {
+        feed.innerHTML = '<div style="color:var(--text-secondary); text-align:center; grid-column: 1/-1; padding: 40px;">No tasks found in this category.</div>';
+        return;
+      }
+
+      feed.innerHTML = filtered.map(task => `
+        <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <span class="status-badge ${task.is_premium ? 'status-live' : 'status-draft'}" style="margin-bottom:10px; display:inline-block;">
+              ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
+            </span>
+            <h3 style="margin-bottom:5px;">${task.title}</h3>
+            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">${task.task_type} • ${task.slots_left} slots left</p>
+          </div>
+          <div class="flex justify-between items-center">
+            <div style="font-size:18px; font-weight:700; color:var(--success);">${formatCurrency(task.reward)}</div>
+            <a href="/earner/task-details.html?id=${task.id}" class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Start Task</a>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function filterTasks(type, btn) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderTasks(type);
+    }
   </script>
 </body>
 </html>
