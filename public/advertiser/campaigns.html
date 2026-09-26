@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Campaigns - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .camp-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+    .camp-info h3 { font-size: 16px; margin-bottom: 5px; }
+    .camp-meta { font-size: 13px; color: var(--text-secondary); }
+    .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .status-draft { background: #334155; color: #cbd5e1; }
+    .status-submitted { background: #1e3a8a; color: #93c5fd; }
+    .status-live { background: #064e3b; color: #6ee7b7; }
+    .status-completed { background: #3f3f46; color: #d4d4d8; }
+  </style>
+</head>
+<body>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <div style="font-weight:800; color:var(--accent);">YOLOTASK <span style="font-size:12px; color:var(--text-secondary);">ADVERTISER</span></div>
+    <a href="/advertiser/create-campaign.html" class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;">+ New</a>
+  </header>
+
+  <div class="container" style="padding: 30px 20px; max-width: 800px;">
+    <h1 style="margin-bottom: 20px;">My Campaigns</h1>
+    <div id="campaignList">
+      <div class="skeleton skeleton-card"></div>
+      <div class="skeleton skeleton-card"></div>
+    </div>
+  </div>
+
+  <nav class="mobile-bottom-nav">
+    <a href="/advertiser/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/advertiser/campaigns.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Campaigns</span></a>
+    <a href="/advertiser/submissions.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"></path></svg><span>Reviews</span></a>
+    <a href="/advertiser/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/advertiser/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
+  </nav>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('advertiser');
+      if (!profile) return;
+
+      try {
+        const res = await apiClient.request('campaigns.js', { action: 'get_list' });
+        const list = document.getElementById('campaignList');
+        const camps = res.data.campaigns;
+
+        if (camps.length === 0) {
+          list.innerHTML = '<div class="card" style="text-align:center; padding:40px; color:var(--text-secondary);">No campaigns yet. Create your first one!</div>';
+          return;
+        }
+
+        list.innerHTML = camps.map(c => `
+          <div class="camp-card">
+            <div class="camp-info">
+              <h3>${c.title}</h3>
+              <div class="camp-meta">${c.task_types.name} • ${c.completed_quantity}/${c.target_quantity} workers • ${formatCurrency(c.total_budget)}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="status-badge status-${c.status.toLowerCase()}">${c.status}</span>
+              ${c.status === 'LIVE' ? `<a href="/advertiser/analytics.html?id=${c.id}" class="btn btn-outline" style="padding:6px 12px; font-size:12px;">Analytics</a>` : ''}
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        showToast('Failed to load campaigns', 'error');
+      }
+    })();
+  </script>
+</body>
+</html>
