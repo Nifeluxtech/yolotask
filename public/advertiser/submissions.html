@@ -23,8 +23,9 @@
     </div>
   </div>
 
-  <script src="/js/api.js"></script>
+<script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
     (async () => {
       const profile = await checkAuthAndRedirect('advertiser');
@@ -38,58 +39,54 @@
         const submissions = res.data.submissions;
 
         if (submissions.length === 0) {
-          list.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding:40px;">No pending submissions. Great job!</div>';
+          list.innerHTML = '<div class="card" style="color:var(--text-secondary); text-align:center; padding:40px;">No pending submissions. Great job!</div>';
           return;
         }
 
         list.innerHTML = submissions.map(sub => `
-          <div class="submission-card" id="sub-${sub.id}">
-            <div class="submission-header">
-              <div class="submission-campaign">${sub.campaign_title}</div>
-              <div class="submission-date">${new Date(sub.created_at).toLocaleDateString()}</div>
+          <div class="card" id="sub-${sub.id}" style="margin-bottom: 15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+              <div style="font-weight:600;">${sub.campaign_title}</div>
+              <div style="font-size:12px; color:var(--text-secondary);">${formatDate(sub.created_at)}</div>
             </div>
-            <div style="font-size:13px; color:var(--text-secondary);">
+            <div style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">
               Worker: <span style="color:var(--text-primary);">${sub.earner.full_name}</span> (${sub.earner.referral_code})
             </div>
-            <div class="submission-proof">
+            <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; word-break: break-all; margin-bottom: 15px;">
               <div style="font-size:12px; color:var(--text-secondary); margin-bottom:5px;">Proof Link:</div>
-              <a href="${sub.proof_url}" target="_blank">${sub.proof_url}</a>
+              <a href="${sub.proof_url}" target="_blank" style="color:var(--accent); text-decoration:none;">${sub.proof_url}</a>
             </div>
-            <div class="submission-actions">
-              <button class="btn-reject" onclick="reviewTask('${sub.id}', 'REJECTED')">Reject</button>
-              <button class="btn-approve" onclick="reviewTask('${sub.id}', 'APPROVED')">Approve & Pay</button>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+              <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="reviewTask('${sub.id}', 'REJECTED', this)">Reject</button>
+              <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="reviewTask('${sub.id}', 'APPROVED', this)">Approve & Pay</button>
             </div>
           </div>
         `).join('');
 
       } catch (err) {
-        list.innerHTML = `<div style="color:var(--error);">Error: ${err.message}</div>`;
+        list.innerHTML = `<div class="card" style="color:var(--error); text-align:center; padding:20px;">Error loading submissions: ${err.message}</div>`;
       }
     })();
 
-    async function reviewTask(submissionId, reviewActionStatus) {
+    async function reviewTask(submissionId, reviewActionStatus, btn) {
       if (reviewActionStatus === 'APPROVED' && !confirm('Are you sure? This will deduct funds from your wallet and pay the worker.')) return;
       
-      const btn = event.target;
       const originalText = btn.textContent;
       btn.disabled = true;
       btn.textContent = reviewActionStatus === 'APPROVED' ? 'Processing...' : 'Rejecting...';
 
       try {
-        // FIX: We use 'reviewAction' instead of 'action' to prevent overwriting the API command
         await apiClient.request('tasks.js', { 
           action: 'review_submission', 
           submissionId: submissionId, 
           reviewAction: reviewActionStatus 
         });
         
-        // Remove card from UI smoothly
         const card = document.getElementById(`sub-${submissionId}`);
         if(card) {
             card.style.opacity = '0.5';
             setTimeout(() => card.remove(), 500);
         }
-        
         showToast(`Task ${reviewActionStatus.toLowerCase()} successfully.`, 'success');
       } catch (err) {
         showToast(err.message, 'error');
