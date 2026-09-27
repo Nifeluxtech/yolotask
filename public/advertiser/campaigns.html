@@ -16,6 +16,7 @@
     .status-submitted { background: #1e3a8a; color: #93c5fd; }
     .status-live { background: #064e3b; color: #6ee7b7; }
     .status-completed { background: #3f3f46; color: #d4d4d8; }
+    .status-rejected { background: #7f1d1d; color: #fca5a5; }
   </style>
 </head>
 <body>
@@ -58,22 +59,58 @@
           return;
         }
 
-        list.innerHTML = camps.map(c => `
-          <div class="camp-card">
-            <div class="camp-info">
-              <h3>${c.title}</h3>
-              <div class="camp-meta">${c.task_types.name} • ${c.completed_quantity}/${c.target_quantity} workers • ${formatCurrency(c.total_budget)}</div>
+        list.innerHTML = camps.map(c => {
+          let actionBtn = '';
+          
+          // LOGIC FOR BUTTONS BASED ON STATUS
+          if (c.status === 'DRAFT') {
+            actionBtn = `<button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="submitCampaign('${c.id}', this)">Submit for Review</button>`;
+          } else if (c.status === 'SUBMITTED') {
+            actionBtn = `<span style="font-size:12px; color:var(--text-secondary);">Awaiting Admin</span>`;
+          } else if (c.status === 'LIVE') {
+            actionBtn = `<a href="/advertiser/analytics.html?id=${c.id}" class="btn btn-outline" style="padding:6px 12px; font-size:12px;">Analytics</a>`;
+          } else if (c.status === 'REJECTED') {
+            actionBtn = `<span style="font-size:12px; color:var(--error);">Rejected</span>`;
+          } else if (c.status === 'COMPLETED') {
+            actionBtn = `<a href="/advertiser/analytics.html?id=${c.id}" class="btn btn-outline" style="padding:6px 12px; font-size:12px;">View Results</a>`;
+          }
+
+          return `
+            <div class="camp-card">
+              <div class="camp-info">
+                <h3>${c.title}</h3>
+                <div class="camp-meta">${c.task_types.name} • ${c.completed_quantity}/${c.target_quantity} workers • ${formatCurrency(c.total_budget)}</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="status-badge status-${c.status.toLowerCase()}">${c.status}</span>
+                ${actionBtn}
+              </div>
             </div>
-            <div class="flex items-center gap-2">
-              <span class="status-badge status-${c.status.toLowerCase()}">${c.status}</span>
-              ${c.status === 'LIVE' ? `<a href="/advertiser/analytics.html?id=${c.id}" class="btn btn-outline" style="padding:6px 12px; font-size:12px;">Analytics</a>` : ''}
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } catch (err) {
         showToast('Failed to load campaigns', 'error');
       }
     })();
+
+    // Function to submit a draft to the admin
+    async function submitCampaign(campaignId, btn) {
+      if (!confirm('Submit this campaign for Admin review? This will check your wallet balance.')) return;
+      
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+
+      try {
+        await apiClient.request('campaigns.js', { action: 'submit', campaignId: campaignId });
+        showToast('Campaign submitted to Admin!', 'success');
+        setTimeout(() => window.location.reload(), 1500);
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
   </script>
 </body>
 </html>
