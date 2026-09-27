@@ -67,25 +67,34 @@
       }
     })();
 
-    async function reviewTask(submissionId, action) {
-      if (action === 'APPROVED' && !confirm('Are you sure? This will deduct funds from your wallet and pay the worker.')) return;
+    async function reviewTask(submissionId, reviewActionStatus) {
+      if (reviewActionStatus === 'APPROVED' && !confirm('Are you sure? This will deduct funds from your wallet and pay the worker.')) return;
       
       const btn = event.target;
+      const originalText = btn.textContent;
       btn.disabled = true;
-      btn.textContent = action === 'APPROVED' ? 'Processing...' : 'Rejecting...';
+      btn.textContent = reviewActionStatus === 'APPROVED' ? 'Processing...' : 'Rejecting...';
 
       try {
-        await apiClient.request('tasks.js', { action: 'review_submission', submissionId, action });
+        // FIX: We use 'reviewAction' instead of 'action' to prevent overwriting the API command
+        await apiClient.request('tasks.js', { 
+          action: 'review_submission', 
+          submissionId: submissionId, 
+          reviewAction: reviewActionStatus 
+        });
         
         // Remove card from UI smoothly
-        document.getElementById(`sub-${submissionId}`).style.opacity = '0.5';
-        setTimeout(() => document.getElementById(`sub-${submissionId}`).remove(), 500);
+        const card = document.getElementById(`sub-${submissionId}`);
+        if(card) {
+            card.style.opacity = '0.5';
+            setTimeout(() => card.remove(), 500);
+        }
         
-        alert(`Task ${action.toLowerCase()} successfully.`);
+        showToast(`Task ${reviewActionStatus.toLowerCase()} successfully.`, 'success');
       } catch (err) {
-        alert(err.message);
+        showToast(err.message, 'error');
         btn.disabled = false;
-        btn.textContent = action === 'APPROVED' ? 'Approve & Pay' : 'Reject';
+        btn.textContent = originalText;
       }
     }
   </script>
