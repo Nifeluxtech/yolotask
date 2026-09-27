@@ -36,11 +36,14 @@ module.exports = async (req, res) => {
       }
       case 'review_submission': {
         requireRole(profile, ['advertiser']);
-        const { submissionId, action: reviewAction } = req.body;
-        if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+        // We look for 'reviewAction' here now
+        const { submissionId, reviewAction } = req.body; 
+        
+        if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Submission ID and Action required.', 400);
         
         const result = await reviewSubmission(profile.id, submissionId, reviewAction);
         
+        // ... (rest of the notification logic) ... 
         // Notification Trigger
         const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
         const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', sub.campaign_id).single();
@@ -55,4 +58,6 @@ module.exports = async (req, res) => {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  return sendSuccess(res, result, `Task ${reviewAction.toLowerCase()} successfully.`);
+      }       
 };
