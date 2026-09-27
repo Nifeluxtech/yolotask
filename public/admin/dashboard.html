@@ -59,7 +59,10 @@
           <div class="stat-card"><div class="stat-lbl">Pending Withdrawals</div><div class="stat-val" style="color:var(--warning);">${s.pending_withdrawals}</div></div>
           <div class="stat-card"><div class="stat-lbl">Platform Revenue</div><div class="stat-val" style="color:var(--success);">${formatCurrency(s.platform_revenue)}</div></div>
         `;
-      } catch (err) { showToast('Failed to load stats', 'error'); }
+      } catch (err) { 
+        console.error("DASHBOARD STATS ERROR:", err); // This will show the real error in Vercel logs
+        showToast('Failed to load stats', 'error'); 
+      }
     })();
   </script>
 </body>
