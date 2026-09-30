@@ -80,4 +80,38 @@ module.exports = async (req, res) => {
     const msg = err.message || 'Server error occurred';
     return sendError(res, err.code || 'INTERNAL_ERROR', msg, err.statusCode || 500);
   }
+  case 'reviewer_get_queue': {
+        // Reviewers and Admins can see ALL pending submissions across the platform
+        requireRole(profile, ['reviewer', 'admin']);
+        
+        const { data: submissions, error } = await supabaseAdmin
+          .from('task_submissions')
+          .select(`
+            id, campaign_id, earner_id, proof_url, status, created_at,
+            campaign:campaign_id(title, advertiser_id),
+            earner:earner_id(full_name, referral_code),
+            advertiser:campaign.advertiser_id(full_name)
+          `)
+          .eq('status', 'PENDING_REVIEW')
+          .order('created_at', { ascending: false })
+          .limit(100); // Load 100 at a time for performance
+
+        if (error) throw error;
+        return sendSuccess(res, { submissions: submissions || [] });
+      }
+
+      case 'reviewer_process': {
+        requireRole(profile, ['reviewer', 'admin']);
+        const { submissionId, reviewAction } = req.body;
+        if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+        
+        const { data, error } = await supabaseAdmin.rpc('process_reviewer_approval', {
+          p_submission_id: submissionId,
+          p_reviewer_id: profile.id,
+          p_action: reviewAction
+        });
+
+        if (error) throw { code: 'PROCESSING_ERROR', message: error.message };
+        return sendSuccess(res, data, `Task ${reviewAction.toLowerCase()} successfully.`);
+      }
 };
