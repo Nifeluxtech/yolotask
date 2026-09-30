@@ -5,32 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Task Details - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
-  <link rel="stylesheet" href="/css/tasks.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+    .reward-badge { background: var(--success-bg); color: var(--success); padding: 8px 16px; border-radius: 20px; font-weight: 700; font-size: 18px; }
+    .info-box { background: var(--bg-primary); padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--accent); }
+    .info-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 5px; }
+    .info-value { font-size: 15px; color: var(--text-primary); word-break: break-all; }
+    .proof-input { width: 100%; padding: 14px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); margin-bottom: 15px; }
+  </style>
 </head>
 <body>
-  <header class="app-header">
-    <a href="/earner/tasks.html" class="header-logo">← Back to Tasks</a>
+  <header style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <a href="/earner/tasks.html" style="color: var(--accent); text-decoration: none; font-weight: 600;">← Back to Tasks</a>
   </header>
 
-  <div class="dashboard-container form-container">
+  <div class="container" style="padding: 30px 20px; max-width: 800px; margin: 0 auto;">
     <div id="taskContent">
-      <!-- Populated by JS -->
+      <div class="skeleton skeleton-title" style="width: 60%;"></div>
+      <div class="skeleton skeleton-text" style="width: 100%;"></div>
+      <div class="skeleton skeleton-text" style="width: 80%;"></div>
     </div>
-
-    <form id="submitForm" style="display:none; margin-top:30px;">
-      <div class="form-group">
-        <label style="color:var(--text-secondary); margin-bottom:10px; display:block;">
-          Paste your proof link below (e.g., link to your profile, post, or screenshot URL):
-        </label>
-        <input type="url" id="proofUrl" placeholder="https://..." required style="width:100%; padding:14px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; color:white;" />
-      </div>
-      <button type="submit" class="btn-primary" style="margin-top:20px;">Submit Proof</button>
-    </form>
   </div>
 
+  <!-- CRITICAL: Load ui.js BEFORE using formatCurrency -->
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  
   <script>
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
@@ -44,49 +46,75 @@
         return;
       }
 
+      const content = document.getElementById('taskContent');
+
       try {
+        // Fetch task details
         const res = await apiClient.request('tasks.js', { action: 'get_details', taskId });
         const task = res.data.task;
-        const content = document.getElementById('taskContent');
 
+        // Render UI
         content.innerHTML = `
-          <span class="task-type-badge ${task.is_premium ? 'premium' : ''}" style="margin-bottom:15px; display:inline-block;">
-            ${task.is_premium ? '★ PREMIUM TASK' : 'GENERAL TASK'}
-          </span>
-          <h1 style="margin-bottom:10px;">${task.title}</h1>
-          <h2 style="color:var(--success); margin-bottom:20px;">Reward: ${formatCurrency(task.reward)}</h2>
-          
-          <div class="instruction-box">
-            <strong>Instructions:</strong><br/>
-            ${task.instructions}
+          <div class="task-header">
+            <div>
+              <span class="status-badge ${task.is_premium ? 'status-live' : 'status-draft'}" style="margin-bottom:10px; display:inline-block;">
+                ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
+              </span>
+              <h1 style="margin: 10px 0;">${task.title}</h1>
+              <p style="color: var(--text-secondary);">${task.task_type}</p>
+            </div>
+            <div class="reward-badge">${formatCurrency(task.reward)}</div>
           </div>
 
-          ${task.destination_link ? `<a href="${task.destination_link}" target="_blank" class="btn-outline" style="display:inline-block; margin-bottom:20px;">Open Destination Link </a>` : ''}
+          <div class="card">
+            <h3 style="margin-bottom: 10px;">Instructions</h3>
+            <p style="color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap;">${task.instructions}</p>
+            
+            <div class="info-box">
+              <div class="info-label">Destination Link</div>
+              <a href="${task.destination_link}" target="_blank" class="info-value" style="color: var(--accent); text-decoration: none;">
+                ${task.destination_link} 
+              </a>
+            </div>
+
+            <div class="info-box" style="border-left-color: var(--warning);">
+              <div class="info-label">Proof Requirement</div>
+              <div class="info-value">${task.proof_requirements || 'Provide a valid URL proving you completed the task.'}</div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid var(--border); margin: 25px 0;">
+
+            <h3 style="margin-bottom: 15px;">Submit Your Proof</h3>
+            <form id="submitForm">
+              <label style="display:block; margin-bottom:8px; font-size:14px; color:var(--text-secondary);">Paste your proof link below</label>
+              <input type="url" id="proofUrl" class="proof-input" placeholder="https://..." required />
+              <button type="submit" class="btn btn-primary w-full" id="submitBtn">Submit for Review</button>
+            </form>
+          </div>
         `;
 
-        document.getElementById('submitForm').style.display = 'block';
-
+        // Handle Form Submission
         document.getElementById('submitForm').addEventListener('submit', async (e) => {
           e.preventDefault();
-          const btn = e.target.querySelector('button');
-          btn.disabled = true; btn.textContent = 'Submitting...';
+          const btn = document.getElementById('submitBtn');
+          const proofUrl = document.getElementById('proofUrl').value;
+
+          btn.disabled = true;
+          btn.textContent = 'Submitting...';
 
           try {
-            await apiClient.request('tasks.js', { 
-              action: 'submit', 
-              taskId, 
-              proofUrl: document.getElementById('proofUrl').value 
-            });
-            alert('Task submitted successfully! Wait for advertiser approval.');
-            window.location.href = '/earner/tasks.html';
+            await apiClient.request('tasks.js', { action: 'submit', taskId, proofUrl });
+            showToast('Task submitted successfully!', 'success');
+            setTimeout(() => window.location.href = '/earner/tasks.html', 2000);
           } catch (err) {
-            alert(err.message);
-            btn.disabled = false; btn.textContent = 'Submit Proof';
+            showToast(err.message, 'error');
+            btn.disabled = false;
+            btn.textContent = 'Submit for Review';
           }
         });
 
       } catch (err) {
-        document.getElementById('taskContent').innerHTML = `<div style="color:var(--error);">${err.message}</div>`;
+        content.innerHTML = `<div class="card" style="color:var(--error); text-align:center; padding:40px;">Error loading task: ${err.message}</div>`;
       }
     })();
   </script>
