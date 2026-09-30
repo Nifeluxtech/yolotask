@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reviewer Dashboard - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .reviewer-layout { max-width: 1000px; margin: 0 auto; padding: 20px; }
+    .task-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 15px; }
+    .proof-box { background: var(--bg-primary); padding: 15px; border-radius: 8px; margin: 15px 0; word-break: break-all; }
+    .proof-box a { color: var(--accent); text-decoration: none; }
+    .meta-info { font-size: 13px; color: var(--text-secondary); margin-bottom: 5px; }
+  </style>
+</head>
+<body>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <div style="font-weight:800; color:var(--accent);">YOLOTASK <span style="font-size:12px; color:var(--warning);">REVIEWER</span></div>
+    <button class="btn btn-outline" style="padding:6px 12px; font-size:12px;" onclick="logout()">Logout</button>
+  </header>
+
+  <div class="reviewer-layout">
+    <h1 style="margin-bottom: 10px;">Task Review Queue</h1>
+    <p style="color:var(--text-secondary); margin-bottom: 30px;">Verify worker proofs. Approving will pay the worker from the advertiser's locked funds.</p>
+    
+    <div id="reviewQueue">
+      <div class="skeleton skeleton-card"></div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('reviewer'); // Redirects if not reviewer/admin
+      if (!profile) return;
+
+      try {
+        const res = await apiClient.request('tasks.js', { action: 'reviewer_get_queue' });
+        const tasks = res.data.submissions;
+        const queue = document.getElementById('reviewQueue');
+
+        if (tasks.length === 0) {
+          queue.innerHTML = '<div class="card" style="text-align:center; padding:40px; color:var(--text-secondary);">Queue is empty! Great job.</div>';
+          return;
+        }
+
+        queue.innerHTML = tasks.map(t => `
+          <div class="task-card" id="task-${t.id}">
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+              <strong style="font-size:16px;">${t.campaign.title}</strong>
+              <span style="font-size:12px; color:var(--text-muted);">${formatDate(t.created_at)}</span>
+            </div>
+            <div class="meta-info">Advertiser: ${t.advertiser.full_name}</div>
+            <div class="meta-info" style="margin-bottom:15px;">Worker: ${t.earner.full_name} (${t.earner.referral_code})</div>
+            
+            <div class="proof-box">
+              <div style="font-size:12px; color:var(--text-muted); margin-bottom:5px;">Proof Link:</div>
+              <a href="${t.proof_url}" target="_blank">${t.proof_url}</a>
+            </div>
+            
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+              <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="processTask('${t.id}', 'REJECTED', this)">Reject</button>
+              <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="processTask('${t.id}', 'APPROVED', this)">Approve & Pay</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        showToast('Failed to load queue', 'error');
+      }
+    })();
+
+    async function processTask(submissionId, action, btn) {
+      if (action === 'APPROVED' && !confirm('Pay the worker and debit the advertiser?')) return;
+      
+      const originalText = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Processing...';
+
+      try {
+        await apiClient.request('tasks.js', { action: 'reviewer_process', submissionId, reviewAction: action });
+        showToast(`Task ${action.toLowerCase()} successfully.`, 'success');
+        document.getElementById(`task-${submissionId}`).remove();
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false; btn.textContent = originalText;
+      }
+    }
+
+    function logout() { localStorage.clear(); window.location.href = '/login.html'; }
+  </script>
+</body>
+</html>
