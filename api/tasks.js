@@ -5,7 +5,7 @@ const { sendNotification } = require('../lib/notifications');
 const { supabaseAdmin } = require('../lib/supabase');
 
 module.exports = async (req, res) => {
-  // CORS handling
+  // 1. Handle CORS Preflight
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
 
@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
     const { action } = req.body;
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
-    // Authenticate user
+    // 2. Authenticate User
     let profile;
     try {
       const authResult = await getAuthenticatedUser(req);
@@ -22,7 +22,10 @@ module.exports = async (req, res) => {
       return sendError(res, authErr.code || 'UNAUTHORIZED', authErr.message, 401);
     }
 
+    // 3. Route Actions
     switch (action) {
+      
+      // --- EARNER ACTIONS ---
       case 'get_feed': {
         requireRole(profile, ['earner']);
         const feed = await getTaskFeed(profile.id, profile);
@@ -45,6 +48,7 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Submitted for review.');
       }
 
+      // --- ADVERTISER ACTIONS ---
       case 'get_submissions': {
         requireRole(profile, ['advertiser']);
         const submissions = await getAdvertiserSubmissions(profile.id);
@@ -53,12 +57,13 @@ module.exports = async (req, res) => {
 
       case 'review_submission': {
         requireRole(profile, ['advertiser']);
-        const { submissionId, reviewAction } = req.body;
+        // Note: We use 'reviewAction' to avoid overwriting the main 'action' variable
+        const { submissionId, reviewAction } = req.body; 
         if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Submission ID and Action required.', 400);
         
         const result = await reviewSubmission(profile.id, submissionId, reviewAction);
         
-        // Send notification
+        // Send Notification to Earner
         try {
           const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
           if (sub) {
@@ -71,33 +76,43 @@ module.exports = async (req, res) => {
         return sendSuccess(res, result, `Task ${reviewAction.toLowerCase()} successfully.`);
       }
 
-      default:
-        return sendError(res, 'INVALID_ACTION', 'Unknown action.', 400);
-    }
-  } catch (err) {
-    // CATCH ALL: Prevents Vercel HTML error pages
-    console.error('Tasks API CRITICAL ERROR:', err);
-    const msg = err.message || 'Server error occurred';
-    return sendError(res, err.code || 'INTERNAL_ERROR', msg, err.statusCode || 500);
-  }
-  case 'reviewer_get_queue': {
-        // Reviewers and Admins can see ALL pending submissions across the platform
+      // --- REVIEWER & ADMIN ACTIONS (GLOBAL QUEUE) ---
+      case 'reviewer_get_queue': {
+        // Only Reviewers and Admins can access the global queue
         requireRole(profile, ['reviewer', 'admin']);
         
+        // Fetch all pending submissions across the platform
         const { data: submissions, error } = await supabaseAdmin
           .from('task_submissions')
-          .select(`
-            id, campaign_id, earner_id, proof_url, status, created_at,
-            campaign:campaign_id(title, advertiser_id),
-            earner:earner_id(full_name, referral_code),
-            advertiser:campaign.advertiser_id(full_name)
-          `)
+          .select('id, campaign_id, earner_id, proof_url, status, created_at, earner:earner_id(full_name, referral_code)')
           .eq('status', 'PENDING_REVIEW')
           .order('created_at', { ascending: false })
           .limit(100); // Load 100 at a time for performance
 
         if (error) throw error;
-        return sendSuccess(res, { submissions: submissions || [] });
+        if (!submissions || submissions.length === 0) return sendSuccess(res, { submissions: [] });
+
+        // Fetch Campaign and Advertiser details separately to avoid complex PostgREST join errors
+        const campaignIds = [...new Set(submissions.map(s => s.campaign_id))];
+        const { data: campaigns } = await supabaseAdmin.from('campaigns').select('id, title, advertiser_id').in('id', campaignIds);
+        
+        const advertiserIds = campaigns ? [...new Set(campaigns.map(c => c.advertiser_id))] : [];
+        const { data: advertisers } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', advertiserIds);
+
+        // Map data together
+        const campMap = new Map(campaigns?.map(c => [c.id, c]) || []);
+        const advMap = new Map(advertisers?.map(a => [a.id, a]) || []);
+
+        const enrichedSubmissions = submissions.map(s => {
+          const camp = campMap.get(s.campaign_id);
+          return {
+            ...s,
+            campaign_title: camp?.title || 'Unknown Campaign',
+            advertiser_name: camp ? (advMap.get(camp.advertiser_id)?.full_name || 'Unknown Advertiser') : 'Unknown'
+          };
+        });
+
+        return sendSuccess(res, { submissions: enrichedSubmissions });
       }
 
       case 'reviewer_process': {
@@ -105,6 +120,7 @@ module.exports = async (req, res) => {
         const { submissionId, reviewAction } = req.body;
         if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
         
+        // Call the dedicated Reviewer SQL function
         const { data, error } = await supabaseAdmin.rpc('process_reviewer_approval', {
           p_submission_id: submissionId,
           p_reviewer_id: profile.id,
@@ -112,6 +128,27 @@ module.exports = async (req, res) => {
         });
 
         if (error) throw { code: 'PROCESSING_ERROR', message: error.message };
+
+        // Notify Earner
+        try {
+          const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
+          if (sub) {
+            const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', sub.campaign_id).single();
+            const msg = reviewAction === 'APPROVED' ? `Your task "${camp?.title || 'submission'}" was approved by our review team.` : `Your task was rejected by our review team.`;
+            await sendNotification(sub.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
+          }
+        } catch (notifErr) { console.error('Notification error:', notifErr); }
+
         return sendSuccess(res, data, `Task ${reviewAction.toLowerCase()} successfully.`);
       }
+
+      default:
+        return sendError(res, 'INVALID_ACTION', 'Unknown action.', 400);
+    }
+  } catch (err) {
+    // CRITICAL: Catch-all to prevent Vercel HTML error pages
+    console.error('Tasks API CRITICAL ERROR:', err);
+    const msg = err.message || 'Server error occurred';
+    return sendError(res, err.code || 'INTERNAL_ERROR', msg, err.statusCode || 500);
+  }
 };
