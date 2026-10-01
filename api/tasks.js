@@ -78,41 +78,71 @@ module.exports = async (req, res) => {
 
       // --- REVIEWER & ADMIN ACTIONS (GLOBAL QUEUE) ---
       case 'reviewer_get_queue': {
-        // Only Reviewers and Admins can access the global queue
         requireRole(profile, ['reviewer', 'admin']);
         
-        // Fetch all pending submissions across the platform
-        const { data: submissions, error } = await supabaseAdmin
-          .from('task_submissions')
-          .select('id, campaign_id, earner_id, proof_url, status, created_at, earner:earner_id(full_name, referral_code)')
-          .eq('status', 'PENDING_REVIEW')
-          .order('created_at', { ascending: false })
-          .limit(100); // Load 100 at a time for performance
+        try {
+          // Simple query - just get submissions with basic info
+          const { data: submissions, error } = await supabaseAdmin
+            .from('task_submissions')
+            .select('id, campaign_id, earner_id, proof_url, status, created_at')
+            .eq('status', 'PENDING_REVIEW')
+            .order('created_at', { ascending: false })
+            .limit(100);
 
-        if (error) throw error;
-        if (!submissions || submissions.length === 0) return sendSuccess(res, { submissions: [] });
+          if (error) {
+            console.error('Queue fetch error:', error);
+            throw error;
+          }
 
-        // Fetch Campaign and Advertiser details separately to avoid complex PostgREST join errors
-        const campaignIds = [...new Set(submissions.map(s => s.campaign_id))];
-        const { data: campaigns } = await supabaseAdmin.from('campaigns').select('id, title, advertiser_id').in('id', campaignIds);
-        
-        const advertiserIds = campaigns ? [...new Set(campaigns.map(c => c.advertiser_id))] : [];
-        const { data: advertisers } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', advertiserIds);
+          if (!submissions || submissions.length === 0) {
+            return sendSuccess(res, { submissions: [] });
+          }
 
-        // Map data together
-        const campMap = new Map(campaigns?.map(c => [c.id, c]) || []);
-        const advMap = new Map(advertisers?.map(a => [a.id, a]) || []);
+          // Fetch campaign titles separately
+          const campaignIds = [...new Set(submissions.map(s => s.campaign_id))];
+          const { data: campaigns } = await supabaseAdmin
+            .from('campaigns')
+            .select('id, title, advertiser_id')
+            .in('id', campaignIds);
 
-        const enrichedSubmissions = submissions.map(s => {
-          const camp = campMap.get(s.campaign_id);
-          return {
-            ...s,
-            campaign_title: camp?.title || 'Unknown Campaign',
-            advertiser_name: camp ? (advMap.get(camp.advertiser_id)?.full_name || 'Unknown Advertiser') : 'Unknown'
-          };
-        });
+          // Fetch earner names separately
+          const earnerIds = [...new Set(submissions.map(s => s.earner_id))];
+          const { data: earners } = await supabaseAdmin
+            .from('profiles')
+            .select('id, full_name, referral_code')
+            .in('id', earnerIds);
 
-        return sendSuccess(res, { submissions: enrichedSubmissions });
+          // Fetch advertiser names separately
+          const advertiserIds = campaigns ? [...new Set(campaigns.map(c => c.advertiser_id))] : [];
+          const { data: advertisers } = await supabaseAdmin
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', advertiserIds);
+
+          // Map everything together
+          const campMap = new Map(campaigns?.map(c => [c.id, c]) || []);
+          const earnerMap = new Map(earners?.map(e => [e.id, e]) || []);
+          const advMap = new Map(advertisers?.map(a => [a.id, a]) || []);
+
+          const enriched = submissions.map(s => {
+            const camp = campMap.get(s.campaign_id);
+            const earner = earnerMap.get(s.earner_id);
+            const advertiser = camp ? advMap.get(camp.advertiser_id) : null;
+            
+            return {
+              ...s,
+              campaign_title: camp?.title || 'Unknown Campaign',
+              earner_name: earner?.full_name || 'Unknown Worker',
+              earner_referral: earner?.referral_code || 'N/A',
+              advertiser_name: advertiser?.full_name || 'Unknown Advertiser'
+            };
+          });
+
+          return sendSuccess(res, { submissions: enriched });
+        } catch (err) {
+          console.error('REVIEWER QUEUE ERROR:', err);
+          throw err;
+        }
       }
 
       case 'reviewer_process': {
