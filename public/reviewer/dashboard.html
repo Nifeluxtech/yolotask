@@ -29,18 +29,22 @@
     </div>
   </div>
 
-  <script src="/js/api.js"></script>
+<script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
     (async () => {
-      const profile = await checkAuthAndRedirect('reviewer'); // Redirects if not reviewer/admin
+      const profile = await checkAuthAndRedirect('reviewer');
       if (!profile) return;
 
+      const queue = document.getElementById('reviewQueue');
+
       try {
+        console.log('Fetching queue...');
         const res = await apiClient.request('tasks.js', { action: 'reviewer_get_queue' });
+        console.log('Queue response:', res);
+        
         const tasks = res.data.submissions;
-        const queue = document.getElementById('reviewQueue');
 
         if (tasks.length === 0) {
           queue.innerHTML = '<div class="card" style="text-align:center; padding:40px; color:var(--text-secondary);">Queue is empty! Great job.</div>';
@@ -50,11 +54,11 @@
         queue.innerHTML = tasks.map(t => `
           <div class="task-card" id="task-${t.id}">
             <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-              <strong style="font-size:16px;">${t.campaign.title}</strong>
+              <strong style="font-size:16px;">${t.campaign_title}</strong>
               <span style="font-size:12px; color:var(--text-muted);">${formatDate(t.created_at)}</span>
             </div>
-            <div class="meta-info">Advertiser: ${t.advertiser.full_name}</div>
-            <div class="meta-info" style="margin-bottom:15px;">Worker: ${t.earner.full_name} (${t.earner.referral_code})</div>
+            <div class="meta-info">Advertiser: ${t.advertiser_name}</div>
+            <div class="meta-info" style="margin-bottom:15px;">Worker: ${t.earner_name} (${t.earner_referral})</div>
             
             <div class="proof-box">
               <div style="font-size:12px; color:var(--text-muted); margin-bottom:5px;">Proof Link:</div>
@@ -68,7 +72,11 @@
           </div>
         `).join('');
       } catch (err) {
-        showToast('Failed to load queue', 'error');
+        console.error('QUEUE LOAD ERROR:', err);
+        queue.innerHTML = `<div class="card" style="color:var(--error); text-align:center; padding:20px;">
+          <strong>Error loading queue:</strong><br/>
+          ${err.message}
+        </div>`;
       }
     })();
 
