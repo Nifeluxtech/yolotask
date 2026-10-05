@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /earner/
+Disallow: /advertiser/
+Disallow: /admin/
+Disallow: /reviewer/
+
+Sitemap: https://yolotask-flax.vercel.app/sitemap.xml
