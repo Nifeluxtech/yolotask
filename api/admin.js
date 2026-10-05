@@ -81,18 +81,35 @@ module.exports = async (req, res) => {
       case 'get_withdrawals': {
         const { data } = await supabaseAdmin
           .from('withdrawals')
-          .select('*, profiles:user_id(full_name, email)')
+          .select('*, profiles:user_id(full_name)') // Removed email to prevent PostgREST crashes
           .order('created_at', { ascending: false });
         return sendSuccess(res, { withdrawals: data || [] });
       }
 
       case 'get_users': {
+        // Explicitly select columns to avoid PostgREST enum cache bugs
         const { data } = await supabaseAdmin
           .from('profiles')
           .select('id, full_name, role, is_suspended, created_at')
           .order('created_at', { ascending: false })
           .limit(100);
         return sendSuccess(res, { users: data || [] });
+      }
+
+      // --- NEW: SUSPEND/UNSUSPEND USER ---
+      case 'update_user_status': {
+        const { userId, isSuspended } = req.body;
+        
+        if (!userId) return sendError(res, 'VALIDATION_ERROR', 'User ID required.', 400);
+
+        const { error } = await supabaseAdmin
+          .from('profiles')
+          .update({ is_suspended: isSuspended, updated_at: new Date().toISOString() })
+          .eq('id', userId);
+
+        if (error) throw error;
+
+        return sendSuccess(res, {}, `User ${isSuspended ? 'suspended' : 'unsuspended'} successfully.`);
       }
 
       default:
