@@ -57,4 +57,37 @@ module.exports = async (req, res) => {
     console.error('Campaigns API Error:', err);
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
+  case 'update_campaign': {
+        const { campaignId, title, instructions, destination_link } = req.body;
+        if (!campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
+        
+        // Only allow updating specific fields to prevent budget manipulation
+        const { error } = await supabaseAdmin
+          .from('campaigns')
+          .update({ 
+            title: title, 
+            instructions: instructions, 
+            destination_link: destination_link,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', campaignId)
+          .eq('advertiser_id', profile.id); // Security: Ensure they own it
+
+        if (error) throw error;
+        return sendSuccess(res, {}, 'Campaign updated.');
+      }
+
+      case 'change_status': {
+        const { campaignId, newStatus } = req.body;
+        if (!campaignId || !newStatus) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+        
+        const { error } = await supabaseAdmin.rpc('change_campaign_status', {
+          p_campaign_id: campaignId,
+          p_advertiser_id: profile.id,
+          p_new_status: newStatus
+        });
+
+        if (error) throw { code: 'STATUS_ERROR', message: error.message };
+        return sendSuccess(res, {}, `Campaign ${newStatus.toLowerCase()} successfully.`);
+      }
 };
