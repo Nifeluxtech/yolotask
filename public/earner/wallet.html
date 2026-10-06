@@ -12,9 +12,11 @@
     .balance-label { font-size: 13px; opacity: 0.85; }
     .balance-value { font-size: 36px; font-weight: 800; margin: 5px 0; }
     .balance-sub { display: flex; gap: 20px; font-size: 13px; opacity: 0.9; }
-    .tx-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .tx-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; gap: 10px; }
     .tx-row:last-child { border-bottom: none; }
     .settings-select { width: 100%; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); margin-bottom: 15px; }
+    .wd-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; flex-wrap: wrap; }
+    .wd-row:last-child { border-bottom: none; }
   </style>
 </head>
 <body>
@@ -44,6 +46,11 @@
       <a href="/earner/profile.html" style="display:block; text-align:center; margin-top:10px; font-size:13px; color:var(--accent); text-decoration:none;">Manage bank accounts →</a>
     </div>
 
+    <div class="card" style="margin-bottom:20px; padding:20px;">
+      <h3 style="margin-bottom:15px;">Withdrawal Requests</h3>
+      <div id="wdList"><p style="color:var(--text-secondary); font-size:14px;">No withdrawals yet.</p></div>
+    </div>
+
     <div class="card" style="padding:20px;">
       <h3 style="margin-bottom:15px;">Transaction History</h3>
       <div id="txList"><div class="skeleton skeleton-text"></div></div>
@@ -62,8 +69,6 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
-    let savedAccounts = [];
-
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
@@ -77,8 +82,7 @@
         document.getElementById('minWd').textContent = formatCurrency(balRes.data.min_withdrawal);
 
         const accRes = await apiClient.request('wallet.js', { action: 'get_bank_accounts' });
-        savedAccounts = accRes.data.accounts;
-
+        const savedAccounts = accRes.data.accounts;
         const select = document.getElementById('bankSelect');
         if (savedAccounts.length === 0) {
           select.innerHTML = '<option value="">No saved accounts — add one in Settings → Payouts</option>';
@@ -87,6 +91,22 @@
           select.innerHTML = savedAccounts.map(a =>
             `<option value="${a.id}">${a.bank_name} ****${a.account_number.slice(-4)} ${a.is_default ? '(Default)' : ''}</option>`
           ).join('');
+        }
+
+        // Withdrawal requests with receipts
+        const wdRes = await apiClient.request('wallet.js', { action: 'get_my_withdrawals' });
+        const wds = wdRes.data.withdrawals;
+        const wdList = document.getElementById('wdList');
+        if (wds && wds.length > 0) {
+          wdList.innerHTML = wds.map(x => `
+            <div class="wd-row">
+              <div>
+                <div style="font-weight:600;">${formatCurrency(x.amount)} → ${x.bank_name}</div>
+                <div style="font-size:12px; color:var(--text-secondary);">${formatDate(x.created_at)} • ${x.status}</div>
+              </div>
+              <a href="/receipt.html?type=withdrawal&id=${x.id}" class="btn btn-outline" style="padding:6px 12px; font-size:11px;">Receipt</a>
+            </div>
+          `).join('');
         }
 
         const txRes = await apiClient.request('wallet.js', { action: 'get_transactions' });
