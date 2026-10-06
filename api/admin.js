@@ -3,7 +3,7 @@ const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 const { getPlatformStats } = require('../lib/analytics');
-const { sendNotification, sendAnnouncement } = require('../lib/notifications');
+const { sendNotification, sendAnnouncement, sendEmailBroadcast } = require('../lib/notifications');
 
 const SETTING_RULES = {
   daily_checkin_reward:        { type: 'number', min: 0,   max: 10000 },
@@ -72,17 +72,33 @@ module.exports = async (req, res) => {
       }
 
       case 'create_announcement': {
-        const { title, message, type } = req.body;
+        const { title, message, type, sendEmail } = req.body;
         if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+
+        // Fail fast if email requested but not configured
+        if (sendEmail && !process.env.RESEND_API_KEY) {
+          return sendError(res, 'EMAIL_NOT_CONFIGURED', 'Add RESEND_API_KEY to Vercel environment variables to send email broadcasts.', 500);
+        }
+
         await sendAnnouncement(title, message, type);
-        return sendSuccess(res, {}, 'Published.');
+
+        let emailResult = null;
+        if (sendEmail) {
+          emailResult = await sendEmailBroadcast(title, message);
+        }
+
+        const msg = emailResult
+          ? `Published. Email sent to ${emailResult.sent} users${emailResult.failed ? ` (${emailResult.failed} failed)` : ''}.`
+          : 'Published to in-app notifications.';
+
+        return sendSuccess(res, { email: emailResult }, msg);
       }
 
       case 'get_leaderboard': {
         const { data } = await supabaseAdmin
           .from('earner_reputation')
           .select('*, profiles:user_id(full_name)')
-          .order('tasks_completed', { ascending: false })
+          .order('reputation_score', { ascending: false })
           .limit(50);
         return sendSuccess(res, { leaders: data || [] });
       }
@@ -126,7 +142,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { tasks: data || [] });
       }
 
-      // ---------- PLATFORM SETTINGS ----------
       case 'get_platform_settings': {
         const keys = Object.keys(SETTING_RULES);
         const { data, error } = await supabaseAdmin
