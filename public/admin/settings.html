@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Platform Settings - YOLOTASK Admin</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .admin-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 240px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    .sidebar a { color: var(--text-secondary); text-decoration: none; padding: 12px; border-radius: 8px; font-weight: 500; }
+    .sidebar a.active, .sidebar a:hover { background: var(--accent-glow); color: var(--accent); }
+    .sidebar a.logout { margin-top: auto; color: var(--error); }
+    .main { flex: 1; padding: 30px; overflow-y: auto; max-width: 900px; }
+    @media (max-width: 768px) { .sidebar { display: none; } .main { padding: 20px; } }
+    .set-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 25px; margin-bottom: 20px; }
+    .field-label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-secondary); }
+    .set-input { width: 100%; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); margin-bottom: 15px; }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 15px; }
+    .switch { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 26px; cursor: pointer; transition: 0.2s; }
+    .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--text-secondary); border-radius: 50%; transition: 0.2s; }
+    .switch input:checked + .slider { background: var(--error-bg); border-color: var(--error); }
+    .switch input:checked + .slider:before { transform: translateX(22px); background: var(--error); }
+    .switch.green input:checked + .slider { background: var(--success-bg); border-color: var(--success); }
+    .switch.green input:checked + .slider:before { background: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="admin-layout">
+    <aside class="sidebar">
+      <div style="font-size:20px; font-weight:800; color:var(--accent); margin-bottom:30px; padding: 0 10px;">
+        YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span>
+      </div>
+      <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/campaigns.html">📝 Campaign Reviews</a>
+      <a href="/admin/withdrawals.html">💸 Withdrawals</a>
+      <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/announcements.html">📢 Announcements</a>
+      <a href="/admin/settings.html" class="active">⚙️ Platform Settings</a>
+      <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
+    </aside>
+
+    <main class="main">
+      <h1 style="margin-bottom:10px;">Platform Settings</h1>
+      <p style="color:var(--text-secondary); margin-bottom:30px; font-size:14px;">Changes go live immediately across the entire platform.</p>
+
+      <div id="settingsArea"><div class="set-card">Loading settings...</div></div>
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('admin');
+      if (!profile) return;
+
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_platform_settings' });
+        const s = res.data.settings;
+
+        document.getElementById('settingsArea').innerHTML = `
+          <div class="set-card">
+            <h3 style="margin-bottom:15px; color:var(--error);">Platform Control</h3>
+            <div class="toggle-row">
+              <div>
+                <div style="font-weight:600; font-size:14px;">Maintenance Mode</div>
+                <div style="font-size:12px; color:var(--text-secondary);">Blocks ALL users except admins. Everyone sees the maintenance page.</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="maintenance_mode" ${s.maintenance_mode === true || s.maintenance_mode === 'true' ? 'checked' : ''} /><span class="slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <div style="font-weight:600; font-size:14px;">Registrations Open</div>
+                <div style="font-size:12px; color:var(--text-secondary);">Turn OFF to block new sign-ups (existing users unaffected).</div>
+              </div>
+              <label class="switch green"><input type="checkbox" id="registrations_open" ${s.registrations_open === false || s.registrations_open === 'false' ? '' : 'checked'} /><span class="slider"></span></label>
+            </div>
+          </div>
+
+          <div class="set-card">
+            <h3 style="margin-bottom:15px;">Money Settings (₦)</h3>
+            <label class="field-label">Daily Check-in Reward</label>
+            <input type="number" id="daily_checkin_reward" class="set-input" min="0" value="${s.daily_checkin_reward ?? 10}" />
+            <label class="field-label">Minimum Withdrawal</label>
+            <input type="number" id="min_withdrawal_amount" class="set-input" min="100" value="${s.min_withdrawal_amount ?? 1000}" />
+            <label class="field-label">Referral Reward (Earner, ₦)</label>
+            <input type="number" id="referral_reward_earner" class="set-input" min="0" value="${s.referral_reward_earner ?? 150}" />
+            <label class="field-label">Referral Reward (Advertiser, % of first top-up, 0–1)</label>
+            <input type="number" id="referral_reward_advertiser_pct" class="set-input" min="0" max="1" step="0.01" value="${s.referral_reward_advertiser_pct ?? 0.05}" />
+          </div>
+
+          <button class="btn btn-primary w-full" id="saveBtn">Save All Settings</button>
+        `;
+
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+          const btn = document.getElementById('saveBtn');
+          btn.disabled = true; btn.textContent = 'Saving...';
+
+          const maintenanceOn = document.getElementById('maintenance_mode').checked;
+          if (maintenanceOn && !confirm('ENABLE MAINTENANCE MODE? All non-admin users will be locked out immediately.')) {
+            btn.disabled = false; btn.textContent = 'Save All Settings';
+            return;
+          }
+
+          try {
+            await apiClient.request('admin.js', {
+              action: 'update_platform_settings',
+              settings: {
+                maintenance_mode: maintenanceOn,
+                registrations_open: document.getElementById('registrations_open').checked,
+                daily_checkin_reward: Number(document.getElementById('daily_checkin_reward').value),
+                min_withdrawal_amount: Number(document.getElementById('min_withdrawal_amount').value),
+                referral_reward_earner: Number(document.getElementById('referral_reward_earner').value),
+                referral_reward_advertiser_pct: Number(document.getElementById('referral_reward_advertiser_pct').value)
+              }
+            });
+            showToast('Settings saved. Changes are live.', 'success');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+          btn.disabled = false; btn.textContent = 'Save All Settings';
+        });
+      } catch (err) {
+        document.getElementById('settingsArea').innerHTML = `<div class="set-card" style="color:var(--error);">Failed to load: ${err.message}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
