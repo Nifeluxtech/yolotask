@@ -174,65 +174,35 @@ module.exports = async (req, res) => {
         const min = await getMinWithdrawal();
         if (amt < min) return sendError(res, 'BELOW_MINIMUM', `Minimum withdrawal is ₦${min}.`, 400);
 
-        // Resolve payout destination
         let bankDetails = null;
-
         if (bank_account_id) {
-          const { data: acc } = await supabaseAdmin
-            .from('earner_bank_accounts')
-            .select('*')
-            .eq('id', bank_account_id)
-            .eq('user_id', profile.id)
-            .maybeSingle();
+          const { data: acc } = await supabaseAdmin.from('earner_bank_accounts').select('*')
+            .eq('id', bank_account_id).eq('user_id', profile.id).maybeSingle();
           if (acc) bankDetails = acc;
         } else if (bank_name && account_number && account_name) {
           bankDetails = { bank_name, account_number, account_name };
         } else {
-          const { data: def } = await supabaseAdmin
-            .from('earner_bank_accounts')
-            .select('*')
-            .eq('user_id', profile.id)
-            .eq('is_default', true)
-            .maybeSingle();
+          const { data: def } = await supabaseAdmin.from('earner_bank_accounts').select('*')
+            .eq('user_id', profile.id).eq('is_default', true).maybeSingle();
           if (def) bankDetails = def;
         }
 
-        if (!bankDetails) {
-          return sendError(res, 'NO_PAYOUT_ACCOUNT', 'Add a bank account in Settings → Payouts first.', 400);
-        }
+        if (!bankDetails) return sendError(res, 'NO_PAYOUT_ACCOUNT', 'Add a bank account in Settings → Payouts first.', 400);
 
-        // Debit available balance (guarded against negatives)
-        const { data: updated, error: debitErr } = await supabaseAdmin
-          .from('wallets')
-          .update({ available_balance: Math.round((0 - amt) * 100) / 100 + 0, updated_at: new Date().toISOString() })
-          .eq('user_id', profile.id)
-          .gte('available_balance', amt)
-          .select('*')
-          .single();
-
-        // The trick above can't compute relative values; do it properly:
-        if (debitErr && debitErr.code === 'PGRST116') {
-          return sendError(res, 'INSUFFICIENT_FUNDS', 'Available balance is too low.', 400);
-        }
-
-        // Proper relative debit using RPC-free two-step with re-check
         const { data: wallet } = await supabaseAdmin.from('wallets').select('*').eq('user_id', profile.id).single();
-        if (Number(wallet.available_balance) < amt) {
+        if (!wallet || Number(wallet.available_balance) < amt) {
           return sendError(res, 'INSUFFICIENT_FUNDS', 'Available balance is too low.', 400);
         }
 
         const newBalance = Number(wallet.available_balance) - amt;
-        const { error: updErr } = await supabaseAdmin
-          .from('wallets')
+        const { error: updErr } = await supabaseAdmin.from('wallets')
           .update({ available_balance: newBalance, updated_at: new Date().toISOString() })
           .eq('user_id', profile.id)
-          .eq('available_balance', wallet.available_balance); // optimistic lock
+          .eq('available_balance', wallet.available_balance);
 
         if (updErr) throw updErr;
 
-        // Create withdrawal record
-        const { data: withdrawal, error: wdErr } = await supabaseAdmin
-          .from('withdrawals')
+        const { data: withdrawal, error: wdErr } = await supabaseAdmin.from('withdrawals')
           .insert({
             user_id: profile.id,
             amount: amt,
@@ -241,12 +211,10 @@ module.exports = async (req, res) => {
             account_name: bankDetails.account_name,
             status: 'PENDING'
           })
-          .select()
-          .single();
+          .select().single();
 
         if (wdErr) throw wdErr;
 
-        // Ledger entry
         await supabaseAdmin.from('wallet_ledger').insert({
           user_id: profile.id,
           transaction_type: 'WITHDRAWAL',
