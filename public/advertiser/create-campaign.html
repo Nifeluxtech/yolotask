@@ -11,19 +11,19 @@
 </head>
 <body>
   <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <a href="/advertiser/dashboard.html" class="header-logo">← Back</a>
+    <a href="/advertiser/campaigns.html" class="header-logo">← Back</a>
   </header>
 
   <div class="dashboard-container form-container" style="max-width:800px; padding: 30px 20px;">
     <h1 style="margin-bottom:20px;">Create New Campaign</h1>
-    
+
     <form id="campaignForm">
-      <div class="form-grid" style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+      <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
         <div class="form-group">
           <label>Campaign Title</label>
           <input type="text" id="title" required placeholder="e.g., Follow our Instagram Page" />
         </div>
-        
+
         <div class="form-group">
           <label>Task Type</label>
           <select id="task_type_id" required>
@@ -42,8 +42,8 @@
         </div>
 
         <div class="form-group">
-          <label class="toggle-switch" style="display:flex; align-items:center; gap:10px; cursor:pointer;">
-            <input type="checkbox" id="is_targeted" style="width:auto;" /> 
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+            <input type="checkbox" id="is_targeted" style="width:auto;" />
             <span>Enable Premium Targeting (Interests/Gender) - Costs 2x</span>
           </label>
         </div>
@@ -53,26 +53,21 @@
           <input type="number" id="target_quantity" min="1" max="100000" required placeholder="e.g., 100" />
         </div>
 
-        <!-- Targeting Options (Hidden by default) -->
         <div class="form-group" id="targetingOptions" style="display:none; background: var(--bg-secondary); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
           <label style="margin-bottom:10px; display:block;">Target Gender (Optional)</label>
           <div style="display:flex; gap:15px; margin-bottom:20px;">
-            <label class="toggle-switch" style="display:flex; align-items:center; gap:5px;"><input type="checkbox" name="gender" value="male" style="width:auto;"> Male</label>
-            <label class="toggle-switch" style="display:flex; align-items:center; gap:5px;"><input type="checkbox" name="gender" value="female" style="width:auto;"> Female</label>
+            <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" name="gender" value="male" style="width:auto;"> Male</label>
+            <label style="display:flex; align-items:center; gap:5px;"><input type="checkbox" name="gender" value="female" style="width:auto;"> Female</label>
           </div>
-
           <label style="margin-bottom:10px; display:block;">Target Interests (Select at least one)</label>
           <div id="interestsContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 200px; overflow-y: auto;">
-            <!-- Interests injected here -->
             <div style="color:var(--text-secondary);">Loading interests...</div>
           </div>
         </div>
       </div>
 
-      <div class="budget-preview" style="background: rgba(0, 212, 255, 0.05); border: 1px solid var(--accent); border-radius: 8px; padding: 15px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div style="font-size: 14px; color: var(--text-secondary);">Estimated Total Budget</div>
-        </div>
+      <div style="background: rgba(0, 212, 255, 0.05); border: 1px solid var(--accent); border-radius: 8px; padding: 15px; margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 14px; color: var(--text-secondary);">Estimated Total Budget<br><span style="font-size:11px;">Includes platform margin. No hidden fees.</span></div>
         <div style="font-size: 24px; font-weight: 700; color: var(--accent);" id="budgetDisplay">₦0</div>
       </div>
 
@@ -85,54 +80,66 @@
   <script src="/js/ui.js"></script>
   <script>
     let realTaskTypes = [];
-    let realInterests = [];
 
     (async () => {
       const profile = await checkAuthAndRedirect('advertiser');
       if (!profile) return;
 
-      // Fetch Real Data
       try {
-        const res = await apiClient.request('campaigns.js', { action: 'get_reference_data' });
-        realTaskTypes = res.data.task_types;
-        realInterests = res.data.interests;
+        const [refRes, setRes] = await Promise.all([
+          apiClient.request('campaigns.js', { action: 'get_reference_data' }),
+          apiClient.request('campaigns.js', { action: 'get_advertiser_settings' })
+        ]);
 
-        // Populate Task Types
+        realTaskTypes = refRes.data.task_types;
+        const interests = refRes.data.interests;
+        const defaults = (setRes.data.settings && setRes.data.settings.campaign_defaults) || {};
+
+        // Populate task types
         const typeSelect = document.getElementById('task_type_id');
         typeSelect.innerHTML = '<option value="">Select task type...</option>';
         realTaskTypes.forEach(t => {
           const opt = document.createElement('option');
-          opt.value = t.id; // REAL UUID
+          opt.value = t.id;
           opt.textContent = `${t.name} (₦${t.base_advertiser_cost} base / ₦${t.premium_advertiser_cost} premium)`;
           opt.dataset.base = t.base_advertiser_cost;
           opt.dataset.premium = t.premium_advertiser_cost;
           typeSelect.appendChild(opt);
         });
 
-        // Populate Interests
+        // Populate interests
         const intContainer = document.getElementById('interestsContainer');
         intContainer.innerHTML = '';
-        realInterests.forEach(i => {
+        interests.forEach(i => {
           const label = document.createElement('label');
-          label.className = 'toggle-switch';
-          label.style.display = 'flex';
-          label.style.alignItems = 'center';
-          label.style.gap = '5px';
+          label.style.cssText = 'display:flex; align-items:center; gap:5px; font-size:13px;';
           label.innerHTML = `<input type="checkbox" name="interest" value="${i.id}" style="width:auto;"> ${i.name}`;
           intContainer.appendChild(label);
         });
 
+        // ---- APPLY CAMPAIGN DEFAULTS ----
+        if (defaults.task_type_id) typeSelect.value = defaults.task_type_id;
+        if (defaults.is_targeted) document.getElementById('is_targeted').checked = true;
+        (defaults.genders || []).forEach(g => {
+          const cb = document.querySelector(`input[name="gender"][value="${g}"]`);
+          if (cb) cb.checked = true;
+        });
+        (defaults.interest_ids || []).forEach(id => {
+          const cb = document.querySelector(`input[name="interest"][value="${id}"]`);
+          if (cb) cb.checked = true;
+        });
+
+        updateBudget();
       } catch (err) {
-        showToast('Failed to load form data', 'error');
+        showToast('Failed to load form data: ' + err.message, 'error');
       }
     })();
 
-    // Budget Calculator
     function updateBudget() {
       const typeSelect = document.getElementById('task_type_id');
       const qty = parseInt(document.getElementById('target_quantity').value) || 0;
       const isTargeted = document.getElementById('is_targeted').checked;
-      
+
       document.getElementById('targetingOptions').style.display = isTargeted ? 'block' : 'none';
 
       if (typeSelect.value && qty > 0) {
@@ -140,7 +147,7 @@
         const cost = isTargeted ? parseFloat(selectedOpt.dataset.premium) : parseFloat(selectedOpt.dataset.base);
         document.getElementById('budgetDisplay').textContent = formatCurrency(cost * qty);
       } else {
-        document.getElementById('budgetDisplay').textContent = '0';
+        document.getElementById('budgetDisplay').textContent = formatCurrency(0);
       }
     }
 
@@ -148,7 +155,6 @@
     document.getElementById('target_quantity').addEventListener('input', updateBudget);
     document.getElementById('is_targeted').addEventListener('change', updateBudget);
 
-    // Form Submit
     document.getElementById('campaignForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('submitBtn');
@@ -162,7 +168,7 @@
         await apiClient.request('campaigns.js', {
           action: 'create',
           title: document.getElementById('title').value,
-          task_type_id: document.getElementById('task_type_id').value, // Sends Real UUID now
+          task_type_id: document.getElementById('task_type_id').value,
           instructions: document.getElementById('instructions').value,
           destination_link: document.getElementById('destination_link').value,
           is_targeted: isTargeted,
