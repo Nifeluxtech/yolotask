@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Settings - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+</head>
+<body>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <div style="font-weight:800; color:var(--accent);">YOLOTASK <span style="font-size:12px; color:var(--text-secondary);">ADVERTISER</span></div>
+    <button class="btn btn-outline" style="padding:6px 12px; font-size:12px;" onclick="localStorage.clear(); window.location.href='/login.html';">Logout</button>
+  </header>
+
+  <div class="container" style="padding: 30px 20px; max-width: 640px;">
+    <div id="settingsRoot">
+      <div class="skeleton skeleton-card"></div>
+    </div>
+  </div>
+
+  <nav class="mobile-bottom-nav">
+    <a href="/advertiser/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/advertiser/campaigns.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Campaigns</span></a>
+    <a href="/advertiser/submissions.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"></path></svg><span>Reviews</span></a>
+    <a href="/advertiser/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/advertiser/profile.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path></svg><span>Profile</span></a>
+  </nav>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/settings.js"></script>
+</body>
+</html>
