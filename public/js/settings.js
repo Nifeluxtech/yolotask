@@ -21,6 +21,13 @@
       .chip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px; }
       .chip { display: flex; align-items: center; gap: 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 13px; cursor: pointer; }
       .chip input { width: auto; }
+      .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 15px; }
+      .switch { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider { position: absolute; inset: 0; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 26px; cursor: pointer; transition: 0.2s; }
+      .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--text-secondary); border-radius: 50%; transition: 0.2s; }
+      .switch input:checked + .slider { background: var(--accent-glow); border-color: var(--accent); }
+      .switch input:checked + .slider:before { transform: translateX(22px); background: var(--accent); }
     `;
     document.head.appendChild(style);
   }
@@ -39,6 +46,9 @@
     if (profile.role === 'earner') {
       tabs.push({ id: 'payouts', label: 'Payouts' });
       tabs.push({ id: 'tasks', label: 'Task Prefs' });
+    }
+    if (profile.role === 'advertiser') {
+      tabs.push({ id: 'business', label: 'Business' });
     }
     tabs.push({ id: 'security', label: 'Security' });
 
@@ -59,6 +69,7 @@
         });
         if (btn.dataset.tab === 'payouts') loadPayoutsTab();
         if (btn.dataset.tab === 'tasks') loadTasksTab();
+        if (btn.dataset.tab === 'business') loadBusinessTab();
       });
     });
 
@@ -77,7 +88,7 @@
     } catch (e) {}
   }
 
-  // ---------- PROFILE TAB ----------
+  // ---------- PROFILE ----------
   function renderProfileTab(profile) {
     const box = document.getElementById('tab-profile');
     const avatarHtml = profile.avatar_url ? `<img src="${profile.avatar_url}" alt="avatar" />` : initialsOf(profile.full_name);
@@ -141,7 +152,7 @@
     });
   }
 
-  // ---------- PAYOUTS TAB (EARNER) ----------
+  // ---------- PAYOUTS (EARNER) ----------
   async function loadPayoutsTab() {
     const box = document.getElementById('tab-payouts');
     box.innerHTML = '<div class="settings-card">Loading payout accounts...</div>';
@@ -176,7 +187,6 @@
       `;
 
       renderBankList(accounts);
-
       let resolvedAccountName = '';
 
       document.getElementById('resolveBtn').addEventListener('click', async () => {
@@ -203,10 +213,9 @@
         const btn = document.getElementById('saveBankBtn');
         btn.disabled = true; btn.textContent = 'Saving...';
         try {
-          const bankCode = document.getElementById('bankSelect').value;
           await apiClient.request('wallet.js', {
             action: 'save_bank_account',
-            bank_code: bankCode,
+            bank_code: document.getElementById('bankSelect').value,
             bank_name: document.getElementById('bankSelect').selectedOptions[0].textContent,
             account_number: document.getElementById('acctNumber').value,
             account_name: resolvedAccountName,
@@ -261,7 +270,7 @@
     } catch (err) { showToast(err.message, 'error'); }
   };
 
-  // ---------- TASK PREFS TAB (EARNER) ----------
+  // ---------- TASK PREFS (EARNER) ----------
   async function loadTasksTab() {
     const box = document.getElementById('tab-tasks');
     box.innerHTML = '<div class="settings-card">Loading preferences...</div>';
@@ -275,9 +284,7 @@
           <h3 style="margin-bottom:5px;">My Interests</h3>
           <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Controls which premium (targeted) campaigns you see. Minimum 3.</p>
           <div class="chip-grid">
-            ${interests.map(i => `
-              <label class="chip"><input type="checkbox" name="prefInterest" value="${i.id}" ${my_interest_ids.includes(i.id) ? 'checked' : ''} /> ${i.name}</label>
-            `).join('')}
+            ${interests.map(i => `<label class="chip"><input type="checkbox" name="prefInterest" value="${i.id}" ${my_interest_ids.includes(i.id) ? 'checked' : ''} /> ${i.name}</label>`).join('')}
           </div>
           <button class="btn btn-primary w-full" id="saveInterestsBtn">Save Interests</button>
         </div>
@@ -285,9 +292,7 @@
           <h3 style="margin-bottom:5px;">Hide Task Types</h3>
           <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Checked types will never appear in your task feed.</p>
           <div class="chip-grid">
-            ${task_types.map(t => `
-              <label class="chip"><input type="checkbox" name="prefHide" value="${t.id}" ${my_hidden_task_ids.includes(t.id) ? 'checked' : ''} /> Hide: ${t.name}</label>
-            `).join('')}
+            ${task_types.map(t => `<label class="chip"><input type="checkbox" name="prefHide" value="${t.id}" ${my_hidden_task_ids.includes(t.id) ? 'checked' : ''} /> Hide: ${t.name}</label>`).join('')}
           </div>
           <button class="btn btn-primary w-full" id="savePrefsBtn">Save Task Preferences</button>
         </div>
@@ -313,7 +318,112 @@
     }
   }
 
-  // ---------- SECURITY TAB ----------
+  // ---------- BUSINESS (ADVERTISER) ----------
+  async function loadBusinessTab() {
+    const box = document.getElementById('tab-business');
+    box.innerHTML = '<div class="settings-card">Loading business settings...</div>';
+
+    try {
+      const [setRes, refRes] = await Promise.all([
+        apiClient.request('campaigns.js', { action: 'get_advertiser_settings' }),
+        apiClient.request('campaigns.js', { action: 'get_reference_data' })
+      ]);
+
+      const s = setRes.data.settings || {};
+      const defaults = s.campaign_defaults || {};
+      const taskTypes = refRes.data.task_types;
+      const interests = refRes.data.interests;
+
+      box.innerHTML = `
+        <div class="settings-card">
+          <h3 style="margin-bottom:15px;">Business Profile</h3>
+          <label class="field-label">Business / Brand Name</label>
+          <input type="text" id="bizName" class="settings-input" placeholder="e.g. Nifelux Media" value="${(s.business_name || '').replace(/"/g, '&quot;')}" />
+          <label class="field-label">Website</label>
+          <input type="text" id="bizSite" class="settings-input" placeholder="https://..." value="${s.business_website || ''}" />
+          <label class="field-label">Contact Email</label>
+          <input type="email" id="bizEmail" class="settings-input" placeholder="billing@company.com" value="${s.business_contact_email || ''}" />
+          <p style="font-size:12px; color:var(--text-secondary); margin-bottom:15px;">Your business name is shown to the review team and printed on receipts.</p>
+        </div>
+
+        <div class="settings-card">
+          <h3 style="margin-bottom:15px;">Task Approval</h3>
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:600; font-size:14px;">Auto-approve tasks</div>
+              <div style="font-size:12px; color:var(--text-secondary);">If you don't review in time, workers are paid automatically.</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="autoApprove" ${s.auto_approve_enabled ? 'checked' : ''} /><span class="slider"></span></label>
+          </div>
+          <label class="field-label">Approval Window (hours, 12–336)</label>
+          <input type="number" id="autoHours" class="settings-input" min="12" max="336" value="${s.auto_approve_hours || 48}" />
+          <p style="font-size:12px; color:var(--text-secondary);">If auto-approve is OFF, unreviewed tasks escalate to the YOLOTASK review team after this window instead of being paid automatically.</p>
+        </div>
+
+        <div class="settings-card">
+          <h3 style="margin-bottom:15px;">Alerts</h3>
+          <label class="field-label">Low Balance Alert Threshold (₦, blank = off)</label>
+          <input type="number" id="lowThreshold" class="settings-input" min="0" placeholder="e.g. 5000" value="${s.low_balance_threshold ?? ''}" />
+          <p style="font-size:12px; color:var(--text-secondary);">You'll get an in-app alert (max once per day) when your balance drops below this while campaigns are LIVE.</p>
+        </div>
+
+        <div class="settings-card">
+          <h3 style="margin-bottom:5px;">Campaign Defaults</h3>
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">These prefill your campaign creation form.</p>
+          <label class="field-label">Default Task Type</label>
+          <select id="defTaskType" class="settings-select">
+            <option value="">None</option>
+            ${taskTypes.map(t => `<option value="${t.id}" ${defaults.task_type_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+          </select>
+          <div class="toggle-row">
+            <div style="font-weight:600; font-size:14px;">Premium targeting ON by default</div>
+            <label class="switch"><input type="checkbox" id="defTargeted" ${defaults.is_targeted ? 'checked' : ''} /><span class="slider"></span></label>
+          </div>
+          <label class="field-label">Default Genders</label>
+          <div class="chip-grid">
+            <label class="chip"><input type="checkbox" name="defGender" value="male" ${(defaults.genders || []).includes('male') ? 'checked' : ''} /> Male</label>
+            <label class="chip"><input type="checkbox" name="defGender" value="female" ${(defaults.genders || []).includes('female') ? 'checked' : ''} /> Female</label>
+          </div>
+          <label class="field-label">Default Interests</label>
+          <div class="chip-grid" style="max-height:200px; overflow-y:auto;">
+            ${interests.map(i => `<label class="chip"><input type="checkbox" name="defInterest" value="${i.id}" ${(defaults.interest_ids || []).includes(i.id) ? 'checked' : ''} /> ${i.name}</label>`).join('')}
+          </div>
+        </div>
+
+        <button class="btn btn-primary w-full" id="saveBizBtn">Save Business Settings</button>
+      `;
+
+      document.getElementById('saveBizBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('saveBizBtn');
+        btn.disabled = true; btn.textContent = 'Saving...';
+        try {
+          await apiClient.request('campaigns.js', {
+            action: 'update_advertiser_settings',
+            business_name: document.getElementById('bizName').value,
+            business_website: document.getElementById('bizSite').value,
+            business_contact_email: document.getElementById('bizEmail').value,
+            auto_approve_enabled: document.getElementById('autoApprove').checked,
+            auto_approve_hours: Number(document.getElementById('autoHours').value),
+            low_balance_threshold: document.getElementById('lowThreshold').value === '' ? null : Number(document.getElementById('lowThreshold').value),
+            campaign_defaults: {
+              task_type_id: document.getElementById('defTaskType').value || null,
+              is_targeted: document.getElementById('defTargeted').checked,
+              genders: Array.from(document.querySelectorAll('input[name="defGender"]:checked')).map(c => c.value),
+              interest_ids: Array.from(document.querySelectorAll('input[name="defInterest"]:checked')).map(c => c.value)
+            }
+          });
+          showToast('Business settings saved!', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+        btn.disabled = false; btn.textContent = 'Save Business Settings';
+      });
+    } catch (err) {
+      box.innerHTML = `<div class="settings-card" style="color:var(--error);">Failed to load: ${err.message}</div>`;
+    }
+  }
+
+  // ---------- SECURITY ----------
   function renderSecurityTab() {
     const box = document.getElementById('tab-security');
     box.innerHTML = `
