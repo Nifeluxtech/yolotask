@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Receipt - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <style>
+    .receipt-wrap { max-width: 640px; margin: 30px auto; padding: 0 15px; }
+    .receipt { background: #fff; color: #111; border-radius: 12px; overflow: hidden; }
+    .receipt-header { background: #00D4FF; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; }
+    .receipt-header .logo { font-size: 22px; font-weight: 800; color: #0A1628; letter-spacing: 1px; }
+    .receipt-header .doc { font-size: 13px; font-weight: 700; color: #0A1628; text-transform: uppercase; }
+    .receipt-body { padding: 30px; }
+    .r-row { display: flex; justify-content: space-between; padding: 9px 0; font-size: 14px; border-bottom: 1px dashed #ddd; }
+    .r-row:last-child { border-bottom: none; }
+    .r-label { color: #666; }
+    .r-value { font-weight: 600; text-align: right; }
+    .r-total { display: flex; justify-content: space-between; margin-top: 18px; padding: 15px; background: #f4f8fb; border-radius: 8px; font-size: 18px; font-weight: 800; }
+    .status-pill { padding: 4px 12px; border-radius: 14px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .st-success { background: #d1fae5; color: #065f46; }
+    .st-pending { background: #fef3c7; color: #92400e; }
+    .st-failed { background: #fee2e2; color: #991b1b; }
+    .receipt-footer { padding: 18px 30px; background: #f4f8fb; color: #777; font-size: 11px; line-height: 1.6; }
+    .toolbar { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
+    @media print { .toolbar { display: none; } body { background: #fff; } }
+  </style>
+</head>
+<body>
+  <div class="receipt-wrap">
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+      <button class="btn btn-outline" onclick="history.back()">Back</button>
+    </div>
+    <div id="receiptArea"><div class="receipt"><div class="receipt-body">Loading receipt...</div></div></div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect();
+      if (!profile) return;
+
+      const params = new URLSearchParams(window.location.search);
+      const type = params.get('type');
+      const id = params.get('id');
+
+      const area = document.getElementById('receiptArea');
+
+      if (!type || !id) {
+        area.innerHTML = '<div class="receipt"><div class="receipt-body">Invalid receipt link.</div></div>';
+        return;
+      }
+
+      try {
+        const res = await apiClient.request('wallet.js', { action: 'get_receipt', receiptType: type, receiptId: id });
+        const r = res.data.receipt;
+
+        const stClass = ['SUCCESS', 'COMPLETED', 'PAID'].includes(r.status) ? 'st-success'
+          : ['PENDING', 'PROCESSING'].includes(r.status) ? 'st-pending' : 'st-failed';
+
+        area.innerHTML = `
+          <div class="receipt">
+            <div class="receipt-header">
+              <span class="logo">YOLOTASK</span>
+              <span class="doc">Official Receipt</span>
+            </div>
+            <div class="receipt-body">
+              <div class="r-row"><span class="r-label">Receipt No.</span><span class="r-value">${r.reference}</span></div>
+              <div class="r-row"><span class="r-label">Type</span><span class="r-value">${r.type}</span></div>
+              <div class="r-row"><span class="r-label">Date</span><span class="r-value">${formatDate(r.created_at)}</span></div>
+              ${r.processed_at ? `<div class="r-row"><span class="r-label">Processed</span><span class="r-value">${formatDate(r.processed_at)}</span></div>` : ''}
+              <div class="r-row"><span class="r-label">Status</span><span class="status-pill ${stClass}">${r.status}</span></div>
+              <div class="r-row"><span class="r-label">Customer</span><span class="r-value">${r.customer.name}${r.customer.personal_name && r.customer.personal_name !== r.customer.name ? ' (' + r.customer.personal_name + ')' : ''}</span></div>
+              <div class="r-row"><span class="r-label">Email</span><span class="r-value">${r.customer.email}</span></div>
+              <div class="r-row"><span class="r-label">Details</span><span class="r-value">${r.detail}</span></div>
+              <div class="r-total"><span>TOTAL</span><span>₦${Number(r.amount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span></div>
+            </div>
+            <div class="receipt-footer">
+              Issued by ${r.platform.issuer} • ${r.platform.name}<br/>
+              Questions? ${r.platform.support}<br/>
+              This is a computer-generated receipt and is valid without a signature.
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        area.innerHTML = `<div class="receipt"><div class="receipt-body" style="color:#991b1b;">${err.message}</div></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
