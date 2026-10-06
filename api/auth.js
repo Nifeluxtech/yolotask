@@ -1,6 +1,6 @@
 // /api/auth.js
 const { supabaseAdmin } = require('../lib/supabase');
-const { getAuthenticatedUser, requireRole } = require('../lib/auth');
+const { getAuthenticatedUser, requireRole, getPlatformFlag } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 
 module.exports = async (req, res) => {
@@ -13,6 +13,12 @@ module.exports = async (req, res) => {
 
     switch (action) {
       case 'register': {
+        // FEATURE FLAG: registrations
+        const open = getPlatformFlag ? await getPlatformFlag('registrations_open') : null;
+        if (open === false || open === 'false') {
+          return sendError(res, 'REGISTRATION_CLOSED', 'New registrations are temporarily closed.', 403);
+        }
+
         const { email, password, full_name, gender, role, interests, referral_code } = req.body;
         if (!email || !password || !full_name) return sendError(res, 'VALIDATION_ERROR', 'Missing required fields.', 400);
         if (password.length < 8) return sendError(res, 'VALIDATION_ERROR', 'Password must be at least 8 characters.', 400);
@@ -138,7 +144,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'All devices signed out.');
       }
 
-      // ---------- SETTINGS DATA & PREFERENCES ----------
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
 
