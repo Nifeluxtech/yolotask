@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maintenance - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <style>
+    body { display: flex; justify-content: center; align-items: center; min-height: 100vh; text-align: center; padding: 20px; }
+    .maint-box h1 { font-size: 64px; font-weight: 800; color: var(--accent); margin: 0 0 10px; }
+    .maint-box h2 { font-size: 22px; margin: 0 0 12px; }
+    .maint-box p { color: var(--text-secondary); margin-bottom: 25px; max-width: 420px; }
+    .pulse { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--warning); margin-right: 8px; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+  <div class="maint-box">
+    <h1>YOLOTASK</h1>
+    <h2><span class="pulse"></span>Scheduled Maintenance</h2>
+    <p>We're upgrading the platform to serve you better. Your funds and tasks are completely safe. Please check back in a few minutes.</p>
+    <button class="btn btn-primary" onclick="window.location.reload()">Try Again</button>
+  </div>
+</body>
+</html>
