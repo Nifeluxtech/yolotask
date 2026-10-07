@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Submissions - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .filter-tabs { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 20px; padding-bottom: 5px; }
+    .filter-tabs button { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: 600; font-size: 13px; white-space: nowrap; }
+    .filter-tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .sub-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 14px; }
+    .sub-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .st { padding: 4px 10px; border-radius: 14px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .st-APPROVED { background: var(--success-bg); color: var(--success); }
+    .st-PENDING_REVIEW { background: var(--warning-bg); color: var(--warning); }
+    .st-REJECTED { background: var(--error-bg); color: var(--error); }
+    .st-UNDER_REVIEW { background: var(--accent-glow); color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <a href="/earner/dashboard.html" style="color:var(--accent); text-decoration:none; font-weight:600;">← Back</a>
+    <div style="font-weight:800; color:var(--accent);">My Submissions</div>
+  </header>
+
+  <div class="container" style="padding: 25px 20px; max-width: 720px;">
+    <div class="filter-tabs" id="filterTabs">
+      <button class="active" data-f="ALL">All</button>
+      <button data-f="PENDING_REVIEW">Pending</button>
+      <button data-f="APPROVED">Approved</button>
+      <button data-f="REJECTED">Rejected</button>
+    </div>
+    <div id="subList"><div class="skeleton skeleton-card"></div></div>
+  </div>
+
+  <nav class="mobile-bottom-nav">
+    <a href="/earner/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/earner/tasks.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
+    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
+    <a href="/earner/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
+  </nav>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    let allSubs = [];
+    let currentFilter = 'ALL';
+
+    (async () => {
+      const profile = await checkAuthAndRedirect('earner');
+      if (!profile) return;
+
+      try {
+        const res = await apiClient.request('tasks.js', { action: 'get_my_submissions' });
+        allSubs = res.data.submissions || [];
+        render();
+      } catch (err) {
+        document.getElementById('subList').innerHTML = `<div class="sub-card" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
+      }
+    })();
+
+    document.getElementById('filterTabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      document.querySelectorAll('#filterTabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFilter = btn.dataset.f;
+      render();
+    });
+
+    function render() {
+      const list = document.getElementById('subList');
+      const filtered = currentFilter === 'ALL' ? allSubs : allSubs.filter(s => s.status === currentFilter);
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="sub-card" style="text-align:center; color:var(--text-secondary); padding:40px;">No submissions in this category yet.</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(s => `
+        <div class="sub-card">
+          <div class="sub-head">
+            <strong style="font-size:15px;">${escapeHtml(s.campaign_title)}</strong>
+            <span class="st st-${s.status}">${s.status.replace(/_/g, ' ')}</span>
+          </div>
+          <div style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">
+            ${escapeHtml(s.task_type)} • Submitted ${formatDate(s.created_at)}
+            ${s.reviewed_at ? ` • Reviewed ${formatDate(s.reviewed_at)}` : ''}
+          </div>
+          <div class="flex justify-between items-center">
+            <span style="font-weight:700; color:${s.status === 'APPROVED' ? 'var(--success)' : 'var(--text-primary)'};">${formatCurrency(s.reward)}</span>
+            <a href="${escapeHtml(s.proof_url)}" target="_blank" style="font-size:12px; color:var(--accent); text-decoration:none;">View my proof →</a>
+          </div>
+        </div>
+      `).join('');
+    }
+  </script>
+</body>
+</html>
