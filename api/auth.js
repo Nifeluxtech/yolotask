@@ -3,6 +3,11 @@ const { supabaseAdmin } = require('../lib/supabase');
 const { getAuthenticatedUser, requireRole, getPlatformFlag } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 
+// Safe "is active" check that survives NULL / TEXT / boolean column states
+const isActive = (r) =>
+  r.is_active === undefined || r.is_active === null ||
+  r.is_active === true || r.is_active === 'true' || r.is_active === 't';
+
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
@@ -13,8 +18,7 @@ module.exports = async (req, res) => {
 
     switch (action) {
       case 'register': {
-        // FEATURE FLAG: registrations
-        const open = getPlatformFlag ? await getPlatformFlag('registrations_open') : null;
+        const open = await getPlatformFlag('registrations_open');
         if (open === false || open === 'false') {
           return sendError(res, 'REGISTRATION_CLOSED', 'New registrations are temporarily closed.', 403);
         }
@@ -144,20 +148,37 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'All devices signed out.');
       }
 
+      // ---------- SETTINGS DATA (BULLETPROOF) ----------
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
 
-        const [interestsRes, taskTypesRes, myInterestsRes] = await Promise.all([
-          supabaseAdmin.from('interests').select('id, name, category').eq('is_active', true).order('name'),
-          supabaseAdmin.from('task_types').select('id, name').eq('is_active', true).order('name'),
-          supabaseAdmin.from('user_interests').select('interest_id').eq('user_id', profile.id)
+        const [interestsRes, taskTypesRes, myInterestsRes, hiddenRes] = await Promise.all([
+          supabaseAdmin.from('interests').select('*'),
+          supabaseAdmin.from('task_types').select('*'),
+          supabaseAdmin.from('user_interests').select('interest_id').eq('user_id', profile.id),
+          supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle()
         ]);
 
+        // Log real errors instead of swallowing them
+        if (interestsRes.error) console.error('get_settings_data interests error:', interestsRes.error);
+        if (taskTypesRes.error) console.error('get_settings_data task_types error:', taskTypesRes.error);
+        if (myInterestsRes.error) console.error('get_settings_data user_interests error:', myInterestsRes.error);
+
+        const interests = (interestsRes.data || [])
+          .filter(isActive)
+          .map(i => ({ id: i.id, name: i.name, category: i.category }))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+        const task_types = (taskTypesRes.data || [])
+          .filter(isActive)
+          .map(t => ({ id: t.id, name: t.name }))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
         return sendSuccess(res, {
-          interests: interestsRes.data || [],
-          task_types: taskTypesRes.data || [],
+          interests,
+          task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
-          my_hidden_task_ids: profile.hidden_task_types || []
+          my_hidden_task_ids: (hiddenRes && hiddenRes.data && hiddenRes.data.hidden_task_types) || []
         });
       }
 
