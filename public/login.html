@@ -4,52 +4,81 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Login - YOLOTASK</title>
-  <link rel="stylesheet" href="/css/auth.css" />
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .login-card { width: 100%; max-width: 420px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 34px 28px; }
+    .login-logo { font-size: 26px; font-weight: 800; text-align: center; margin-bottom: 6px; }
+    .login-sub { text-align: center; color: var(--text-secondary); font-size: 13px; margin-bottom: 26px; }
+    .f-label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+    .f-input { width: 100%; padding: 13px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); margin-bottom: 16px; font-size: 14px; }
+  </style>
 </head>
 <body>
-  <div class="auth-container">
-    <div class="auth-logo">YOLOTASK</div>
-    <h2 style="text-align:center; margin-bottom:20px;">Welcome Back</h2>
-    
-    <form id="loginForm">
-      <div class="form-group">
-        <label>Email Address</label>
-        <input type="email" id="email" required />
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="password" required />
-      </div>
-      <button type="submit" class="btn-primary" id="loginBtn">Login</button>
-      <div id="errorMsg" class="error-msg"></div>
-    </form>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo yolo-brand">YOLOTASK</div>
+      <div class="login-sub">Sign in to your account</div>
 
-    <div class="auth-footer">
-      <p>Don't have an account? <a href="/register.html">Register Free</a></p>
-      <p style="margin-top:10px;"><a href="/forgot-password.html">Forgot Password?</a></p>
+      <label class="f-label">Email</label>
+      <input type="email" id="email" class="f-input" placeholder="you@example.com" />
+      <label class="f-label">Password</label>
+      <input type="password" id="password" class="f-input" placeholder="••••••••" />
+
+      <button class="btn btn-primary w-full" id="loginBtn">Sign In</button>
+
+      <div style="display:flex; justify-content:space-between; margin-top:16px; font-size:13px;">
+        <a href="/forgot-password.html" style="color:var(--text-secondary); text-decoration:none;">Forgot password?</a>
+        <a href="/register.html" style="color:var(--accent); text-decoration:none; font-weight:600;">Create account</a>
+      </div>
     </div>
   </div>
 
   <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    const ROLE_HOME = {
+      earner: '/earner/dashboard.html',
+      advertiser: '/advertiser/dashboard.html',
+      reviewer: '/reviewer/dashboard.html',
+      admin: '/admin/dashboard.html'
+    };
+
+    // Auto-route already-logged-in users (admins land on admin dashboard)
+    (async () => {
+      if (!localStorage.getItem('yolotask_token')) return;
+      try {
+        const res = await apiClient.request('auth.js', { action: 'get-session' });
+        const p = res.data.profile;
+        localStorage.setItem('yolotask_user', JSON.stringify(p));
+        window.location.replace(ROLE_HOME[p.role] || '/login.html');
+      } catch (e) { /* stay on login */ }
+    })();
+
+    document.getElementById('loginBtn').addEventListener('click', async () => {
       const btn = document.getElementById('loginBtn');
-      const errDiv = document.getElementById('errorMsg');
-      btn.disabled = true; btn.textContent = 'Logging in...'; errDiv.textContent = '';
+      btn.disabled = true; btn.textContent = 'Signing in...';
 
       try {
         const res = await apiClient.request('auth.js', {
           action: 'login',
-          email: document.getElementById('email').value,
+          email: document.getElementById('email').value.trim(),
           password: document.getElementById('password').value
         });
 
         localStorage.setItem('yolotask_token', res.data.session.access_token);
-        window.location.href = '/earner/dashboard.html'; // Redirect logic handled later by role
+
+        const s = await apiClient.request('auth.js', { action: 'get-session' });
+        const p = s.data.profile;
+        localStorage.setItem('yolotask_user', JSON.stringify(p));
+
+        showToast(`Welcome back, ${p.full_name}!`, 'success');
+        setTimeout(() => { window.location.href = ROLE_HOME[p.role] || '/login.html'; }, 600);
       } catch (err) {
-        errDiv.textContent = err.message;
-        btn.disabled = false; btn.textContent = 'Login';
+        showToast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Sign In';
       }
     });
   </script>
