@@ -29,6 +29,7 @@ module.exports = async (req, res) => {
       if (interestsRes.error) console.error('get_reference_data interests error:', interestsRes.error);
 
       return sendSuccess(res, {
+        version: 'camp-v4',
         task_types: (typesRes.data || []).filter(isActive),
         interests: (interestsRes.data || []).filter(isActive)
       });
