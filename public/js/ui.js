@@ -1,5 +1,5 @@
 // /public/js/ui.js
-// Core helpers + Theme engine + Premium chrome (header + floating dock) + PWA + Push
+// Core helpers + Theme + Premium chrome (header, bell, dock with logout) + PWA + Push
 
 const ONESIGNAL_APP_ID = '01a38103-d17e-4257-9af4-558b6500ed44';
 
@@ -65,12 +65,22 @@ function showToast(message, type = 'success') {
   setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; setTimeout(() => toast.remove(), 300); }, 3500);
 }
 
-// ---------- PREMIUM CHROME: HEADER UPGRADE + FLOATING DOCK ----------
+// ---------- PREMIUM CHROME: HEADER + BELL + DOCK ----------
 (function injectPremiumChrome() {
   const path = window.location.pathname;
   if (path.includes('receipt.html')) return;
 
-  // 1) Header: sticky glass + gradient brand
+  if (!document.getElementById('bell-styles')) {
+    const st = document.createElement('style');
+    st.id = 'bell-styles';
+    st.textContent = `
+      .yolo-bell { position: relative; font-size: 19px; line-height: 1; text-decoration: none; margin-left: 12px; padding: 6px; border-radius: 10px; }
+      .yolo-bell:active { background: var(--accent-glow); }
+      .bell-badge { position: absolute; top: 0px; right: -2px; background: var(--error); color: #fff; border-radius: 10px; font-size: 9px; font-weight: 800; padding: 1px 5px; min-width: 15px; text-align: center; box-shadow: 0 0 8px rgba(239,68,68,.6); display: none; }
+    `;
+    document.head.appendChild(st);
+  }
+
   const header = document.querySelector('header');
   if (header) {
     header.classList.add('yolo-header');
@@ -82,10 +92,41 @@ function showToast(message, type = 'success') {
     });
   }
 
-  // 2) Floating dock (role-aware)
   let cached = null;
   try { cached = JSON.parse(localStorage.getItem('yolotask_user') || 'null'); } catch (e) {}
   const role = cached && cached.role;
+
+  // Notification bell
+  if (header && role && !header.querySelector('a[href*="notifications"]')) {
+    const bell = document.createElement('a');
+    bell.href = '/notifications.html';
+    bell.className = 'yolo-bell';
+    bell.setAttribute('aria-label', 'Notifications');
+    bell.innerHTML = '🔔<span class="bell-badge" id="bellBadge"></span>';
+    header.appendChild(bell);
+
+    const token = localStorage.getItem('yolotask_token');
+    if (token) {
+      fetch('/api/auth.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ action: 'get_notifications' })
+      })
+        .then(r => r.json())
+        .then(d => {
+          const list = (d && d.data && d.data.notifications) || [];
+          const unread = list.filter(n => !n.is_read).length;
+          const badge = document.getElementById('bellBadge');
+          if (badge && unread > 0) {
+            badge.textContent = unread > 9 ? '9+' : unread;
+            badge.style.display = 'inline-block';
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  // Floating dock (with Logout as last item)
   if (!role) return;
 
   const I = {
@@ -97,8 +138,11 @@ function showToast(message, type = 'success') {
     review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>',
     users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
     pay: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
-    gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'
+    gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+    exit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>'
   };
+
+  const LOGOUT_ITEM = { href: '/login.html', label: 'Logout', icon: I.exit, match: [], logout: true };
 
   const DOCKS = {
     earner: [
@@ -128,18 +172,19 @@ function showToast(message, type = 'success') {
     ]
   };
 
-  const items = DOCKS[role];
-  if (!items) return;
+  const items = [...(DOCKS[role] || []), LOGOUT_ITEM];
+  if (items.length <= 1) return;
 
   const nav = document.createElement('nav');
   nav.className = 'yolo-dock';
   nav.innerHTML = items.map(it => {
-    const active = it.match.some(m => path.startsWith(m));
-    return `<a href="${it.href}" class="${active ? 'active' : ''}">${it.icon}<span>${it.label}</span></a>`;
+    const active = !it.logout && it.match.some(m => path.startsWith(m));
+    const extra = it.logout ? ' style="color:var(--error);" onclick="localStorage.clear()"' : '';
+    return `<a href="${it.href}" class="${active ? 'active' : ''}"${extra}>${it.icon}<span>${it.label}</span></a>`;
   }).join('');
   document.body.appendChild(nav);
 
-  // 3) Theme toggle button
+  // Theme toggle
   if (!document.getElementById('themeToggleBtn')) {
     const btn = document.createElement('button');
     btn.id = 'themeToggleBtn';
