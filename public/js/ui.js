@@ -1,9 +1,9 @@
 // /public/js/ui.js
-// Core helpers + Theme engine + Premium footer + PWA + Push
+// Core helpers + Theme engine + Premium chrome (header + floating dock) + PWA + Push
 
 const ONESIGNAL_APP_ID = '01a38103-d17e-4257-9af4-558b6500ed44';
 
-// ---------- THEME ENGINE (runs immediately) ----------
+// ---------- THEME ENGINE ----------
 (function initTheme() {
   const link = document.createElement('link');
   link.rel = 'stylesheet';
@@ -49,7 +49,7 @@ function showToast(message, type = 'success') {
   if (!container) {
     container = document.createElement('div');
     container.id = 'toastContainer';
-    container.style.cssText = 'position:fixed; bottom:90px; left:50%; transform:translateX(-50%); z-index:9999; display:flex; flex-direction:column; gap:10px; width:min(92vw,420px); pointer-events:none;';
+    container.style.cssText = 'position:fixed; bottom:110px; left:50%; transform:translateX(-50%); z-index:9999; display:flex; flex-direction:column; gap:10px; width:min(92vw,420px); pointer-events:none;';
     document.body.appendChild(container);
   }
   const colors = {
@@ -65,14 +65,82 @@ function showToast(message, type = 'success') {
   setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; setTimeout(() => toast.remove(), 300); }, 3500);
 }
 
-// ---------- PREMIUM FOOTER + THEME TOGGLE INJECTION ----------
-(function injectSiteChrome() {
+// ---------- PREMIUM CHROME: HEADER UPGRADE + FLOATING DOCK ----------
+(function injectPremiumChrome() {
   const path = window.location.pathname;
-  const isAdmin = path.startsWith('/admin');
-  const isReceipt = path.includes('receipt.html');
+  if (path.includes('receipt.html')) return;
 
-  // Theme toggle (everywhere except admin)
-  if (!isAdmin && !document.getElementById('themeToggleBtn')) {
+  // 1) Header: sticky glass + gradient brand
+  const header = document.querySelector('header');
+  if (header) {
+    header.classList.add('yolo-header');
+    header.querySelectorAll('div, a, span').forEach(el => {
+      const txt = el.textContent.trim();
+      if (txt.startsWith('YOLOTASK') && txt.length < 40 && el.children.length <= 2) {
+        el.classList.add('yolo-brand');
+      }
+    });
+  }
+
+  // 2) Floating dock (role-aware)
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem('yolotask_user') || 'null'); } catch (e) {}
+  const role = cached && cached.role;
+  if (!role) return;
+
+  const I = {
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>',
+    tasks: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>',
+    wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"></path><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path></svg>',
+    refer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"></circle><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path></svg>',
+    review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>',
+    users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+    pay: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
+    gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'
+  };
+
+  const DOCKS = {
+    earner: [
+      { href: '/earner/dashboard.html', label: 'Home', icon: I.home, match: ['/earner/dashboard'] },
+      { href: '/earner/tasks.html', label: 'Tasks', icon: I.tasks, match: ['/earner/tasks', '/earner/task-details'] },
+      { href: '/earner/wallet.html', label: 'Wallet', icon: I.wallet, match: ['/earner/wallet'] },
+      { href: '/earner/referrals.html', label: 'Refer', icon: I.refer, match: ['/earner/referrals', '/earner/leaderboard'] },
+      { href: '/earner/profile.html', label: 'Profile', icon: I.user, match: ['/earner/profile', '/settings'] }
+    ],
+    advertiser: [
+      { href: '/advertiser/dashboard.html', label: 'Home', icon: I.home, match: ['/advertiser/dashboard'] },
+      { href: '/advertiser/campaigns.html', label: 'Campaigns', icon: I.tasks, match: ['/advertiser/campaigns', '/advertiser/create-campaign', '/advertiser/analytics'] },
+      { href: '/advertiser/submissions.html', label: 'Reviews', icon: I.review, match: ['/advertiser/submissions'] },
+      { href: '/advertiser/wallet.html', label: 'Wallet', icon: I.wallet, match: ['/advertiser/wallet'] },
+      { href: '/advertiser/profile.html', label: 'Profile', icon: I.user, match: ['/advertiser/profile', '/settings'] }
+    ],
+    reviewer: [
+      { href: '/reviewer/dashboard.html', label: 'Queue', icon: I.review, match: ['/reviewer'] },
+      { href: '/settings.html', label: 'Settings', icon: I.gear, match: ['/settings'] }
+    ],
+    admin: [
+      { href: '/admin/dashboard.html', label: 'Home', icon: I.home, match: ['/admin/dashboard'] },
+      { href: '/admin/campaigns.html', label: 'Reviews', icon: I.review, match: ['/admin/campaigns', '/admin/escalated'] },
+      { href: '/admin/withdrawals.html', label: 'Payouts', icon: I.pay, match: ['/admin/withdrawals'] },
+      { href: '/admin/users.html', label: 'Users', icon: I.users, match: ['/admin/users', '/admin/leaders'] },
+      { href: '/admin/settings.html', label: 'Settings', icon: I.gear, match: ['/admin/settings', '/admin/announcements'] }
+    ]
+  };
+
+  const items = DOCKS[role];
+  if (!items) return;
+
+  const nav = document.createElement('nav');
+  nav.className = 'yolo-dock';
+  nav.innerHTML = items.map(it => {
+    const active = it.match.some(m => path.startsWith(m));
+    return `<a href="${it.href}" class="${active ? 'active' : ''}">${it.icon}<span>${it.label}</span></a>`;
+  }).join('');
+  document.body.appendChild(nav);
+
+  // 3) Theme toggle button
+  if (!document.getElementById('themeToggleBtn')) {
     const btn = document.createElement('button');
     btn.id = 'themeToggleBtn';
     btn.className = 'theme-toggle';
@@ -80,57 +148,6 @@ function showToast(message, type = 'success') {
     btn.setAttribute('aria-label', 'Toggle theme');
     btn.onclick = window.toggleTheme;
     document.body.appendChild(btn);
-  }
-
-  // Premium footer (skip admin + receipt)
-  if (isAdmin || isReceipt) return;
-
-  const footerHtml = `
-    <div class="pf-grid">
-      <div>
-        <div class="pf-brand">YOLOTASK</div>
-        <p class="pf-tag">Nigeria's trusted digital task marketplace. Complete tasks, earn rewards, and grow your brand — all in one place.</p>
-        <div class="pf-badges">
-          <span class="pf-badge">🔒 Secured by Paystack</span>
-          <span class="pf-badge">⚡ Instant Push Alerts</span>
-        </div>
-      </div>
-      <div class="pf-col">
-        <h4>Product</h4>
-        <a href="/earner/tasks.html">Browse Tasks</a>
-        <a href="/earner/my-submissions.html">My Submissions</a>
-        <a href="/earner/leaderboard.html">Leaderboard</a>
-        <a href="/earner/wallet.html">Wallet</a>
-        <a href="/earner/referrals.html">Refer & Earn</a>
-      </div>
-      <div class="pf-col">
-        <h4>Company</h4>
-        <a href="/login.html">Advertiser Login</a>
-        <a href="/register.html">Create Account</a>
-        <a href="mailto:support@nifelux.com">Support</a>
-      </div>
-      <div class="pf-col">
-        <h4>Legal</h4>
-        <a href="/terms.html">Terms of Service</a>
-        <a href="/privacy.html">Privacy Policy</a>
-        <a href="/refunds.html">Refund & Dispute Policy</a>
-      </div>
-    </div>
-    <div class="pf-bottom">
-      <span>© ${new Date().getFullYear()} Nifelux Media. YOLOTASK™ is a promotional marketplace, not an investment platform.</span>
-      <span>Made with pride in Lagos, Nigeria 🇳🇬</span>
-    </div>
-  `;
-
-  const existing = document.querySelector('footer');
-  if (existing) {
-    existing.className = 'premium-footer';
-    existing.innerHTML = footerHtml;
-  } else {
-    const f = document.createElement('footer');
-    f.className = 'premium-footer';
-    f.innerHTML = footerHtml;
-    document.body.appendChild(f);
   }
 })();
 
@@ -175,7 +192,7 @@ function showInstallBanner() {
   if (document.getElementById('installBanner')) return;
   const bar = document.createElement('div');
   bar.id = 'installBanner';
-  bar.style.cssText = 'position:fixed; bottom:70px; left:50%; transform:translateX(-50%); z-index:9998; width:min(92vw,420px); background:var(--bg-secondary); border:1px solid var(--accent); border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 8px 24px rgba(0,0,0,0.5);';
+  bar.style.cssText = 'position:fixed; bottom:96px; left:50%; transform:translateX(-50%); z-index:9998; width:min(92vw,420px); background:var(--bg-secondary); border:1px solid var(--accent); border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 8px 24px rgba(0,0,0,0.5);';
   bar.innerHTML = `
     <img src="/icons/icon.svg" style="width:40px; height:40px; border-radius:8px;" alt="logo" />
     <div style="flex:1; font-size:13px; line-height:1.4; color:var(--text-primary);">
@@ -239,7 +256,7 @@ function showPushBanner() {
   if (document.getElementById('pushBanner')) return;
   const bar = document.createElement('div');
   bar.id = 'pushBanner';
-  bar.style.cssText = 'position:fixed; bottom:70px; left:50%; transform:translateX(-50%); z-index:9998; width:min(92vw,420px); background:var(--bg-secondary); border:1px solid var(--success); border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 8px 24px rgba(0,0,0,0.5);';
+  bar.style.cssText = 'position:fixed; bottom:96px; left:50%; transform:translateX(-50%); z-index:9998; width:min(92vw,420px); background:var(--bg-secondary); border:1px solid var(--success); border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 8px 24px rgba(0,0,0,0.5);';
   bar.innerHTML = `
     <span style="font-size:24px;">🔔</span>
     <div style="flex:1; font-size:13px; line-height:1.4; color:var(--text-primary);">
