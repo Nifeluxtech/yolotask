@@ -1,0 +1,63 @@
+/* /public/css/themes.css — Light theme overrides (dark remains default in global.css) */
+
+:root[data-theme="light"] {
+  --bg-primary: #eef2f7;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --border: #dbe3ec;
+  --accent: #0099cc;
+  --accent-glow: rgba(0, 153, 204, 0.12);
+  --success: #059669;
+  --success-bg: #d1fae5;
+  --error: #dc2626;
+  --error-bg: #fee2e2;
+  --warning: #d97706;
+  --warning-bg: #fef3c7;
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] select {
+  background: #f8fafc;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+:root[data-theme="light"] .btn-primary {
+  color: #ffffff;
+}
+
+:root[data-theme="light"] .card,
+:root[data-theme="light"] .settings-card,
+:root[data-theme="light"] .camp-card,
+:root[data-theme="light"] .task-card {
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="light"] a { color: inherit; }
+:root[data-theme="light"] a[href]:not(.btn) { color: var(--accent); }
+
+/* Premium footer base styles (both themes) */
+.premium-footer { background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 40px 20px 24px; margin-top: 60px; }
+.pf-grid { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 30px; }
+.pf-brand { font-size: 22px; font-weight: 800; color: var(--accent); letter-spacing: 1px; }
+.pf-tag { color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin-top: 8px; }
+.pf-col h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 12px; }
+.pf-col a { display: block; color: var(--text-secondary); text-decoration: none; font-size: 13px; padding: 4px 0; }
+.pf-col a:hover { color: var(--accent); }
+.pf-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.pf-badge { font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 12px; background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent); }
+.pf-bottom { max-width: 1000px; margin: 30px auto 0; padding-top: 18px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: var(--text-muted); font-size: 12px; }
+
+/* Theme toggle floating button */
+.theme-toggle { position: fixed; right: 14px; bottom: 86px; z-index: 9990; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); font-size: 20px; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; }
+@media (min-width: 769px) { .theme-toggle { bottom: 24px; } }
