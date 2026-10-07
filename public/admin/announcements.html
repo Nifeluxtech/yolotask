@@ -6,64 +6,46 @@
   <title>Announcements - YOLOTASK Admin</title>
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
-  <style>
-    .admin-layout { display: flex; min-height: 100vh; }
-    .sidebar { width: 240px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
-    .sidebar a { color: var(--text-secondary); text-decoration: none; padding: 12px; border-radius: 8px; font-weight: 500; }
-    .sidebar a.active, .sidebar a:hover { background: var(--accent-glow); color: var(--accent); }
-    .sidebar a.logout { margin-top: auto; color: var(--error); }
-    .main { flex: 1; padding: 30px; overflow-y: auto; max-width: 900px; }
-    @media (max-width: 768px) { .sidebar { display: none; } .main { padding: 20px; } }
-    .set-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 25px; margin-bottom: 20px; }
-    .field-label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-secondary); }
-    .set-input { width: 100%; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); margin-bottom: 15px; }
-    .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 15px; }
-    .switch { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; inset: 0; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 26px; cursor: pointer; transition: 0.2s; }
-    .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--text-secondary); border-radius: 50%; transition: 0.2s; }
-    .switch input:checked + .slider { background: var(--accent-glow); border-color: var(--accent); }
-    .switch input:checked + .slider:before { transform: translateX(22px); background: var(--accent); }
-  </style>
+  <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
   <div class="admin-layout">
-    <aside class="sidebar">
-      <div style="font-size:20px; font-weight:800; color:var(--accent); margin-bottom:30px; padding: 0 10px;">
-        YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span>
-      </div>
+    <aside class="admin-sidebar">
+      <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html">📊 Dashboard</a>
-      <a href="/admin/campaigns.html">📝 Campaign Reviews</a>
+      <a href="/admin/leaders.html">🏆 Leader Console</a>
+      <a href="/admin/campaigns.html">📝 Campaigns</a>
+      <a href="/admin/escalated.html">⚠️ Escalated</a>
       <a href="/admin/withdrawals.html">💸 Withdrawals</a>
       <a href="/admin/users.html">👥 Users</a>
       <a href="/admin/announcements.html" class="active">📢 Announcements</a>
-      <a href="/admin/settings.html">⚙️ Platform Settings</a>
+      <a href="/admin/settings.html">⚙️ Settings</a>
       <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
     </aside>
 
-    <main class="main">
-      <h1 style="margin-bottom:10px;">Announcements</h1>
-      <p style="color:var(--text-secondary); margin-bottom:30px; font-size:14px;">Publish platform-wide messages to in-app notifications and email.</p>
+    <main class="admin-main">
+      <header class="admin-header">
+        <div class="page-title">Announcements</div>
+      </header>
 
-      <div class="set-card">
-        <label class="field-label">Title</label>
-        <input type="text" id="annTitle" class="set-input" placeholder="e.g. New Premium Tasks Available!" />
-
-        <label class="field-label">Type</label>
-        <select id="annType" class="set-input">
+      <div class="panel">
+        <h3>New Broadcast</h3>
+        <label class="f-label">Title</label>
+        <input type="text" id="annTitle" class="f-input" placeholder="e.g. New premium tasks this weekend" />
+        <label class="f-label">Type</label>
+        <select id="annType" class="f-input">
           <option value="GENERAL">General</option>
           <option value="PROMO">Promotion</option>
           <option value="MAINTENANCE">Maintenance Notice</option>
           <option value="SECURITY">Security Notice</option>
         </select>
-
-        <label class="field-label">Message</label>
-        <textarea id="annMessage" class="set-input" style="min-height:120px;" placeholder="Write your announcement..."></textarea>
+        <label class="f-label">Message</label>
+        <textarea id="annMessage" class="f-input" style="min-height:120px;" placeholder="Write your announcement..."></textarea>
 
         <div class="toggle-row">
           <div>
             <div style="font-weight:600; font-size:14px;">Also send via Email</div>
-            <div style="font-size:12px; color:var(--text-secondary);">Broadcasts to every registered email address via Resend.</div>
+            <div style="font-size:12px; color:var(--text-secondary);">Broadcasts to every registered email (Resend).</div>
           </div>
           <label class="switch"><input type="checkbox" id="annEmail" /><span class="slider"></span></label>
         </div>
@@ -87,12 +69,10 @@
         const sendEmail = document.getElementById('annEmail').checked;
 
         if (!title || !message) { showToast('Title and message are required.', 'error'); return; }
-
         if (sendEmail && !confirm('This will email EVERY registered user. Continue?')) return;
 
         const btn = document.getElementById('publishBtn');
-        btn.disabled = true;
-        btn.textContent = sendEmail ? 'Publishing & emailing...' : 'Publishing...';
+        btn.disabled = true; btn.textContent = sendEmail ? 'Publishing & emailing...' : 'Publishing...';
 
         try {
           const res = await apiClient.request('admin.js', {
@@ -105,11 +85,8 @@
           document.getElementById('annTitle').value = '';
           document.getElementById('annMessage').value = '';
           document.getElementById('annEmail').checked = false;
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-        btn.disabled = false;
-        btn.textContent = 'Publish Announcement';
+        } catch (err) { showToast(err.message, 'error'); }
+        btn.disabled = false; btn.textContent = 'Publish Announcement';
       });
     })();
   </script>
