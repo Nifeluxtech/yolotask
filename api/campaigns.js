@@ -5,6 +5,10 @@ const { createCampaign, submitForReview } = require('../lib/campaign-engine');
 const { getCampaignAnalytics } = require('../lib/analytics');
 const { supabaseAdmin } = require('../lib/supabase');
 
+const isActive = (r) =>
+  r.is_active === undefined || r.is_active === null ||
+  r.is_active === true || r.is_active === 'true' || r.is_active === 't';
+
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
@@ -16,12 +20,18 @@ module.exports = async (req, res) => {
       const { profile } = await getAuthenticatedUser(req);
       requireRole(profile, ['advertiser']);
 
-      const [types, interests] = await Promise.all([
-        supabaseAdmin.from('task_types').select('*').eq('is_active', true),
-        supabaseAdmin.from('interests').select('*').eq('is_active', true)
+      const [typesRes, interestsRes] = await Promise.all([
+        supabaseAdmin.from('task_types').select('*'),
+        supabaseAdmin.from('interests').select('*')
       ]);
 
-      return sendSuccess(res, { task_types: types.data || [], interests: interests.data || [] });
+      if (typesRes.error) console.error('get_reference_data task_types error:', typesRes.error);
+      if (interestsRes.error) console.error('get_reference_data interests error:', interestsRes.error);
+
+      return sendSuccess(res, {
+        task_types: (typesRes.data || []).filter(isActive),
+        interests: (interestsRes.data || []).filter(isActive)
+      });
     }
 
     const { profile } = await getAuthenticatedUser(req);
@@ -99,7 +109,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, `Campaign ${newStatus.toLowerCase()} successfully.`);
       }
 
-      // ---------- ADVERTISER SETTINGS ----------
       case 'get_advertiser_settings': {
         const { data, error } = await supabaseAdmin
           .from('profiles')
@@ -117,13 +126,11 @@ module.exports = async (req, res) => {
           auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults
         } = req.body;
 
-        // Validate approval window
         const hours = Number(auto_approve_hours);
         if (!Number.isInteger(hours) || hours < 12 || hours > 336) {
           return sendError(res, 'VALIDATION_ERROR', 'Approval window must be between 12 and 336 hours.', 400);
         }
 
-        // Validate threshold (null = disabled)
         let threshold = null;
         if (low_balance_threshold !== null && low_balance_threshold !== undefined && String(low_balance_threshold).trim() !== '') {
           threshold = Number(low_balance_threshold);
@@ -132,7 +139,6 @@ module.exports = async (req, res) => {
           }
         }
 
-        // Validate contact email
         let cleanEmail = null;
         if (business_contact_email && String(business_contact_email).trim() !== '') {
           cleanEmail = String(business_contact_email).trim();
@@ -141,7 +147,6 @@ module.exports = async (req, res) => {
           }
         }
 
-        // Normalize website
         let cleanSite = null;
         if (business_website && String(business_website).trim() !== '') {
           cleanSite = String(business_website).trim();
@@ -151,7 +156,6 @@ module.exports = async (req, res) => {
           }
         }
 
-        // Sanitize campaign defaults
         const defaults = campaign_defaults || {};
         const safeDefaults = {
           task_type_id: typeof defaults.task_type_id === 'string' ? defaults.task_type_id : null,
