@@ -3,7 +3,7 @@ const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 const { getPlatformStats } = require('../lib/analytics');
-const { sendNotification, sendAnnouncement, sendEmailBroadcast } = require('../lib/notifications');
+const { sendNotification, sendAnnouncement, sendEmailBroadcast, pushToUser } = require('../lib/notifications');
 
 const SETTING_RULES = {
   daily_checkin_reward:        { type: 'number', min: 0,   max: 10000 },
@@ -75,7 +75,6 @@ module.exports = async (req, res) => {
         const { title, message, type, sendEmail } = req.body;
         if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
 
-        // Fail fast if email requested but not configured
         if (sendEmail && !process.env.RESEND_API_KEY) {
           return sendError(res, 'EMAIL_NOT_CONFIGURED', 'Add RESEND_API_KEY to Vercel environment variables to send email broadcasts.', 500);
         }
@@ -83,9 +82,7 @@ module.exports = async (req, res) => {
         await sendAnnouncement(title, message, type);
 
         let emailResult = null;
-        if (sendEmail) {
-          emailResult = await sendEmailBroadcast(title, message);
-        }
+        if (sendEmail) emailResult = await sendEmailBroadcast(title, message);
 
         const msg = emailResult
           ? `Published. Email sent to ${emailResult.sent} users${emailResult.failed ? ` (${emailResult.failed} failed)` : ''}.`
@@ -94,15 +91,112 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { email: emailResult }, msg);
       }
 
+      // ---------- LEADER CONSOLE ----------
       case 'get_leaderboard': {
-        const { data } = await supabaseAdmin
-          .from('earner_reputation')
-          .select('*, profiles:user_id(full_name)')
-          .order('reputation_score', { ascending: false })
-          .limit(50);
-        return sendSuccess(res, { leaders: data || [] });
+        const period = req.body.period === 'month' ? 'month' : 'week';
+        const kind = req.body.kind === 'referrals' ? 'referrals' : 'tasks';
+
+        const { data, error } = await supabaseAdmin.rpc('get_leaderboard', {
+          p_kind: kind,
+          p_period: period
+        });
+
+        if (error) throw error;
+        return sendSuccess(res, { leaders: data || [], period, kind });
       }
 
+      case 'reward_leader': {
+        const { userId, amount, note, period } = req.body;
+        const amt = Number(amount);
+
+        if (!userId) return sendError(res, 'VALIDATION_ERROR', 'User ID required.', 400);
+        if (!amt || amt <= 0 || amt > 100000) {
+          return sendError(res, 'VALIDATION_ERROR', 'Reward must be between ₦1 and ₦100,000.', 400);
+        }
+
+        const cleanNote = String(note || 'Leadership bonus').slice(0, 140);
+        const periodLabel = String(period || '').slice(0, 40);
+
+        // 1) Credit wallet
+        const { data: wallet } = await supabaseAdmin
+          .from('wallets')
+          .select('available_balance')
+          .eq('user_id', userId)
+          .single();
+
+        if (!wallet) return sendError(res, 'WALLET_NOT_FOUND', 'This user has no wallet.', 404);
+
+        const newBalance = Number(wallet.available_balance) + amt;
+        const { error: updErr } = await supabaseAdmin
+          .from('wallets')
+          .update({ available_balance: newBalance, updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
+
+        if (updErr) throw updErr;
+
+        // 2) Ledger entry
+        const { error: ledErr } = await supabaseAdmin
+          .from('wallet_ledger')
+          .insert({
+            user_id: userId,
+            transaction_type: 'ADMIN_BONUS',
+            amount: amt,
+            direction: 'CREDIT',
+            status: 'COMPLETED',
+            reference: 'BONUS-' + Date.now()
+          });
+
+        if (ledErr) throw ledErr;
+
+        // 3) Audit trail
+        const { error: audErr } = await supabaseAdmin
+          .from('reward_audit')
+          .insert({
+            admin_id: profile.id,
+            user_id: userId,
+            amount: amt,
+            note: cleanNote,
+            period_label: periodLabel
+          });
+
+        if (audErr) throw audErr;
+
+        // 4) Notify + push
+        await sendNotification(
+          userId,
+          'Leadership Bonus!',
+          `You received ${formatNaira(amt)} for outstanding performance (${cleanNote}). Keep shining!`,
+          'WALLET'
+        );
+        pushToUser(userId, 'Leadership Bonus!', `${formatNaira(amt)} bonus credited to your wallet.`);
+
+        return sendSuccess(res, {}, `Reward of ${formatNaira(amt)} sent successfully.`);
+      }
+
+      case 'get_reward_history': {
+        const { data: rows, error } = await supabaseAdmin
+          .from('reward_audit')
+          .select('id, user_id, amount, note, period_label, created_at')
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (error) throw error;
+        if (!rows || rows.length === 0) return sendSuccess(res, { rewards: [] });
+
+        const userIds = [...new Set(rows.map(r => r.user_id))];
+        const { data: users } = await supabaseAdmin
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', userIds);
+
+        const nameMap = new Map((users || []).map(u => [u.id, u.full_name]));
+
+        return sendSuccess(res, {
+          rewards: rows.map(r => ({ ...r, user_name: nameMap.get(r.user_id) || 'Unknown User' }))
+        });
+      }
+
+      // ---------- EXISTING ADMIN TOOLS ----------
       case 'get_withdrawals': {
         const { data } = await supabaseAdmin
           .from('withdrawals')
@@ -196,3 +290,7 @@ module.exports = async (req, res) => {
     return sendError(res, 'INTERNAL_ERROR', 'Server error.');
   }
 };
+
+function formatNaira(n) {
+  return '₦' + Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
