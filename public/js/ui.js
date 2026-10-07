@@ -79,7 +79,9 @@ function showToast(message, type = 'success') {
 })();
 
 // ---------- PWA: SERVICE WORKER ----------
-if ('serviceWorker' in navigator) {
+// When push is ENABLED: OneSignal registers /OneSignalSDK.sw.js (which includes our caching).
+// When push is DISABLED: we register our own /sw.js so offline mode still works.
+if ('serviceWorker' in navigator && !ONESIGNAL_APP_ID) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => {
       console.warn('SW registration failed:', err);
