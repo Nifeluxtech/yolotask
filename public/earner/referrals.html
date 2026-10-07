@@ -3,93 +3,104 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Referrals & Check-in - YOLOTASK</title>
+  <title>Refer & Earn - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
-  <link rel="stylesheet" href="/css/wallet.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .ref-hero { background: linear-gradient(135deg, var(--accent), #4338ca); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 16px; text-align: center; }
+    .ref-code { background: rgba(255,255,255,0.15); border: 1px dashed rgba(255,255,255,0.6); border-radius: 12px; padding: 12px; font-size: 20px; font-weight: 800; letter-spacing: 2px; margin: 14px 0; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .stat-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-align: center; }
+    .stat-val { font-size: 22px; font-weight: 800; color: var(--accent); }
+    .stat-lbl { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+    .ref-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .ref-row:last-child { border-bottom: none; }
+  </style>
 </head>
 <body>
-  <header class="app-header">
-    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <a href="/earner/dashboard.html" style="color:var(--accent); text-decoration:none; font-weight:600;">← Back</a>
+    <div style="font-weight:800; color:var(--accent);">Refer & Earn</div>
   </header>
 
-  <div class="dashboard-container">
-    <!-- Daily Check-in Section -->
-    <div style="background: linear-gradient(135deg, #00D4FF 0%, #0056b3 100%); border-radius:16px; padding:30px; text-align:center; margin-bottom:30px; color:white;">
-      <h2 style="margin-bottom:10px;">Daily Check-in</h2>
-      <p style="margin-bottom:20px; opacity:0.9;">Claim your free ₦10 reward every day!</p>
-      <button id="checkInBtn" class="btn-primary" style="background:white; color:#0056b3; width:auto; padding:12px 30px;">Check In Now</button>
-      <div id="checkInMsg" style="margin-top:15px; font-size:14px;"></div>
-    </div>
-
-    <!-- Referral Section -->
-    <h1 style="margin-bottom:20px;">Refer & Earn 150</h1>
-    <p style="color:var(--text-secondary); margin-bottom:20px;">Earn ₦150 when your referral completes their first withdrawal.</p>
-    
-    <div class="balance-card" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
-      <div>
-        <div class="balance-label">Your Referral Code</div>
-        <div class="balance-amount" id="refCode" style="font-size:24px;">LOADING...</div>
-      </div>
-      <button class="btn-outline" onclick="copyCode()" style="margin:0;">Copy</button>
-    </div>
-
-    <div class="wallet-grid">
-      <div class="balance-card">
-        <div class="balance-label">Total Referred</div>
-        <div class="balance-amount" id="statTotal">0</div>
-      </div>
-      <div class="balance-card pending">
-        <div class="balance-label">Pending Rewards</div>
-        <div class="balance-amount" id="statPending">0</div>
-      </div>
-      <div class="balance-card" style="--accent: var(--success);">
-        <div class="balance-label">Completed (₦150 each)</div>
-        <div class="balance-amount" id="statCompleted">0</div>
-      </div>
-    </div>
+  <div class="container" style="padding: 22px 20px; max-width: 720px;">
+    <div id="refContent"><div class="skeleton skeleton-card"></div></div>
   </div>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
 
-      // Load Referral Stats
       try {
-        const res = await apiClient.request('referrals.js', { action: 'get_stats' });
-        document.getElementById('refCode').textContent = res.data.referral_code;
-        document.getElementById('statTotal').textContent = res.data.stats.total;
-        document.getElementById('statPending').textContent = res.data.stats.pending;
-        document.getElementById('statCompleted').textContent = res.data.stats.completed;
-      } catch (err) { console.error(err); }
-    })();
+        const res = await apiClient.request('referrals.js', { action: 'get_referral_data' });
+        const d = res.data;
+        const link = `${location.origin}/register.html?ref=${d.referral_code}`;
 
-    // Check-in Logic
-    document.getElementById('checkInBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('checkInBtn');
-      const msg = document.getElementById('checkInMsg');
-      btn.disabled = true; btn.textContent = 'Processing...'; msg.textContent = '';
+        document.getElementById('refContent').innerHTML = `
+          <div class="ref-hero">
+            <div style="font-size:14px; opacity:.9;">Your Referral Code</div>
+            <div class="ref-code" id="codeBox">${escapeHtml(d.referral_code)}</div>
+            <div style="display:flex; gap:10px; justify-content:center;">
+              <button class="btn" id="copyBtn" style="background:#fff; color:#0A1628; padding:10px 18px; font-size:13px; font-weight:700; border:none; border-radius:10px; cursor:pointer;"> Copy Link</button>
+              <a class="btn" id="shareBtn" style="background:rgba(255,255,255,.2); color:#fff; padding:10px 18px; font-size:13px; font-weight:700; border:1px solid rgba(255,255,255,.5); border-radius:10px; text-decoration:none;" target="_blank">💬 Share</a>
+            </div>
+          </div>
 
-      try {
-        const res = await apiClient.request('referrals.js', { action: 'check_in' });
-        msg.textContent = `Success! ₦${res.data.reward} credited to your wallet.`;
-        msg.style.color = '#fff';
-        btn.textContent = 'Checked In';
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-val">${d.total_referrals}</div>
+              <div class="stat-lbl">Total Referrals</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:var(--success);">${formatCurrency(d.total_earned)}</div>
+              <div class="stat-lbl">Referral Earnings</div>
+            </div>
+          </div>
+
+          <div class="card" style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-md); padding:18px; margin-bottom:16px;">
+            <h3 style="font-size:15px; margin-bottom:10px;">How it works</h3>
+            <p style="font-size:13px; color:var(--text-secondary); line-height:1.7;">
+              1. Share your link with friends.<br/>
+              2. They register and start earning.<br/>
+              3. You earn a bonus for every active referral — paid straight to your wallet.
+            </p>
+          </div>
+
+          <div class="card" style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-md); padding:18px;">
+            <h3 style="font-size:15px; margin-bottom:10px;">My Referrals (${d.total_referrals})</h3>
+            ${d.referred_users.length === 0
+              ? '<p style="font-size:13px; color:var(--text-secondary);">No referrals yet. Share your link to start earning!</p>'
+              : d.referred_users.map(u => `
+                  <div class="ref-row">
+                    <div>
+                      <div style="font-weight:600;">${escapeHtml(u.name)}</div>
+                      <div style="font-size:11px; color:var(--text-secondary);">Joined ${formatDate(u.joined_at)} • ${u.role}</div>
+                    </div>
+                    <span style="color:var(--success); font-size:12px; font-weight:700;">ACTIVE</span>
+                  </div>
+                `).join('')}
+          </div>
+        `;
+
+        document.getElementById('shareBtn').href =
+          'https://wa.me/?text=' + encodeURIComponent(`Join me on YOLOTASK and earn real money completing simple tasks! Register with my code ${d.referral_code}: ${link}`);
+
+        document.getElementById('copyBtn').addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(link);
+            showToast('Referral link copied!', 'success');
+          } catch (e) {
+            showToast(link, 'warning');
+          }
+        });
       } catch (err) {
-        msg.textContent = err.message;
-        msg.style.color = '#ffcccc';
-        btn.disabled = false; btn.textContent = 'Check In Now';
+        document.getElementById('refContent').innerHTML = `<div class="card" style="color:var(--error); padding:20px;">${escapeHtml(err.message)}</div>`;
       }
-    });
-
-    function copyCode() {
-      const code = document.getElementById('refCode').textContent;
-      navigator.clipboard.writeText(code);
-      alert('Referral code copied!');
-    }
+    })();
   </script>
 </body>
 </html>
