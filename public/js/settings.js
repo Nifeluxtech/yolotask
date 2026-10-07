@@ -28,6 +28,7 @@
       .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--text-secondary); border-radius: 50%; transition: 0.2s; }
       .switch input:checked + .slider { background: var(--accent-glow); border-color: var(--accent); }
       .switch input:checked + .slider:before { transform: translateX(22px); background: var(--accent); }
+      .diag-box { background: var(--bg-primary); border: 1px solid var(--error); border-radius: 8px; padding: 12px; font-size: 11px; color: var(--text-secondary); overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
     `;
     document.head.appendChild(style);
   }
@@ -152,6 +153,77 @@
     });
   }
 
+  // ---------- TASK PREFS (EARNER) with loud diagnostics ----------
+  async function loadTasksTab() {
+    const box = document.getElementById('tab-tasks');
+    box.innerHTML = '<div class="settings-card">Loading preferences...</div>';
+
+    try {
+      const res = await apiClient.request('auth.js', { action: 'get_settings_data' });
+      const d = res.data || {};
+      const interests = Array.isArray(d.interests) ? d.interests : [];
+      const task_types = Array.isArray(d.task_types) ? d.task_types : [];
+      const my_interest_ids = Array.isArray(d.my_interest_ids) ? d.my_interest_ids : [];
+      const my_hidden_task_ids = Array.isArray(d.my_hidden_task_ids) ? d.my_hidden_task_ids : [];
+
+      // LOUD EMPTY STATE: show raw server payload so mobile users can screenshot the cause
+      if (interests.length === 0 && task_types.length === 0) {
+        box.innerHTML = `
+          <div class="settings-card" style="border-color: var(--error);">
+            <h3 style="color:var(--error); margin-bottom:10px;">No platform data (0 interests, 0 task types)</h3>
+            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
+              The database tables are empty or the API is outdated. Screenshot this box and send it:
+            </p>
+            <div class="diag-box">${escapeHtml(JSON.stringify(d).slice(0, 500))}</div>
+          </div>
+        `;
+        return;
+      }
+
+      box.innerHTML = `
+        <div class="settings-card">
+          <h3 style="margin-bottom:5px;">My Interests <span style="font-size:12px; color:var(--text-secondary);">(${interests.length} available)</span></h3>
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Controls which premium (targeted) campaigns you see. Minimum 3.</p>
+          <div class="chip-grid">
+            ${interests.map(i => `<label class="chip"><input type="checkbox" name="prefInterest" value="${i.id}" ${my_interest_ids.includes(i.id) ? 'checked' : ''} /> ${escapeHtml(i.name)}</label>`).join('')}
+          </div>
+          <button class="btn btn-primary w-full" id="saveInterestsBtn">Save Interests</button>
+        </div>
+        <div class="settings-card">
+          <h3 style="margin-bottom:5px;">Hide Task Types <span style="font-size:12px; color:var(--text-secondary);">(${task_types.length} available)</span></h3>
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Checked types will never appear in your task feed.</p>
+          <div class="chip-grid">
+            ${task_types.map(t => `<label class="chip"><input type="checkbox" name="prefHide" value="${t.id}" ${my_hidden_task_ids.includes(t.id) ? 'checked' : ''} /> Hide: ${escapeHtml(t.name)}</label>`).join('')}
+          </div>
+          <button class="btn btn-primary w-full" id="savePrefsBtn">Save Task Preferences</button>
+        </div>
+      `;
+
+      document.getElementById('saveInterestsBtn').addEventListener('click', async () => {
+        const ids = Array.from(document.querySelectorAll('input[name="prefInterest"]:checked')).map(c => c.value);
+        try {
+          await apiClient.request('auth.js', { action: 'update_interests', interest_ids: ids });
+          showToast('Interests updated!', 'success');
+        } catch (err) { showToast(err.message, 'error'); }
+      });
+
+      document.getElementById('savePrefsBtn').addEventListener('click', async () => {
+        const ids = Array.from(document.querySelectorAll('input[name="prefHide"]:checked')).map(c => c.value);
+        try {
+          await apiClient.request('auth.js', { action: 'update_task_prefs', hidden_task_type_ids: ids });
+          showToast('Task preferences saved!', 'success');
+        } catch (err) { showToast(err.message, 'error'); }
+      });
+    } catch (err) {
+      box.innerHTML = `
+        <div class="settings-card" style="border-color: var(--error);">
+          <h3 style="color:var(--error); margin-bottom:10px;">Failed to load preferences</h3>
+          <div class="diag-box">${escapeHtml(err.message)}</div>
+        </div>
+      `;
+    }
+  }
+
   // ---------- PAYOUTS (EARNER) ----------
   async function loadPayoutsTab() {
     const box = document.getElementById('tab-payouts');
@@ -176,7 +248,7 @@
           <label class="field-label">Bank</label>
           <select id="bankSelect" class="settings-select">
             <option value="">Select bank...</option>
-            ${banks.map(b => `<option value="${b.code}">${b.name}</option>`).join('')}
+            ${banks.map(b => `<option value="${b.code}">${escapeHtml(b.name)}</option>`).join('')}
           </select>
           <label class="field-label">Account Number (10 digits)</label>
           <input type="text" id="acctNumber" class="settings-input" maxlength="10" inputmode="numeric" placeholder="0123456789" />
@@ -229,7 +301,7 @@
         }
       });
     } catch (err) {
-      box.innerHTML = `<div class="settings-card" style="color:var(--error);">Failed to load: ${err.message}</div>`;
+      box.innerHTML = `<div class="settings-card" style="color:var(--error);">Failed to load: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -242,8 +314,8 @@
     list.innerHTML = accounts.map(a => `
       <div class="bank-row">
         <div>
-          <div style="font-weight:600;">${a.bank_name} ${a.is_default ? '<span class="bank-default">DEFAULT</span>' : ''}</div>
-          <div style="font-size:13px; color:var(--text-secondary);">****${a.account_number.slice(-4)} • ${a.account_name}</div>
+          <div style="font-weight:600;">${escapeHtml(a.bank_name)} ${a.is_default ? '<span class="bank-default">DEFAULT</span>' : ''}</div>
+          <div style="font-size:13px; color:var(--text-secondary);">****${escapeHtml(String(a.account_number).slice(-4))} • ${escapeHtml(a.account_name)}</div>
         </div>
         <div style="display:flex; gap:8px;">
           ${!a.is_default ? `<button class="btn btn-outline" style="padding:6px 10px; font-size:11px;" onclick="setDefaultBank('${a.id}')">Make Default</button>` : ''}
@@ -270,54 +342,6 @@
     } catch (err) { showToast(err.message, 'error'); }
   };
 
-  // ---------- TASK PREFS (EARNER) ----------
-  async function loadTasksTab() {
-    const box = document.getElementById('tab-tasks');
-    box.innerHTML = '<div class="settings-card">Loading preferences...</div>';
-
-    try {
-      const res = await apiClient.request('auth.js', { action: 'get_settings_data' });
-      const { interests, task_types, my_interest_ids, my_hidden_task_ids } = res.data;
-
-      box.innerHTML = `
-        <div class="settings-card">
-          <h3 style="margin-bottom:5px;">My Interests</h3>
-          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Controls which premium (targeted) campaigns you see. Minimum 3.</p>
-          <div class="chip-grid">
-            ${interests.map(i => `<label class="chip"><input type="checkbox" name="prefInterest" value="${i.id}" ${my_interest_ids.includes(i.id) ? 'checked' : ''} /> ${i.name}</label>`).join('')}
-          </div>
-          <button class="btn btn-primary w-full" id="saveInterestsBtn">Save Interests</button>
-        </div>
-        <div class="settings-card">
-          <h3 style="margin-bottom:5px;">Hide Task Types</h3>
-          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Checked types will never appear in your task feed.</p>
-          <div class="chip-grid">
-            ${task_types.map(t => `<label class="chip"><input type="checkbox" name="prefHide" value="${t.id}" ${my_hidden_task_ids.includes(t.id) ? 'checked' : ''} /> Hide: ${t.name}</label>`).join('')}
-          </div>
-          <button class="btn btn-primary w-full" id="savePrefsBtn">Save Task Preferences</button>
-        </div>
-      `;
-
-      document.getElementById('saveInterestsBtn').addEventListener('click', async () => {
-        const ids = Array.from(document.querySelectorAll('input[name="prefInterest"]:checked')).map(c => c.value);
-        try {
-          await apiClient.request('auth.js', { action: 'update_interests', interest_ids: ids });
-          showToast('Interests updated!', 'success');
-        } catch (err) { showToast(err.message, 'error'); }
-      });
-
-      document.getElementById('savePrefsBtn').addEventListener('click', async () => {
-        const ids = Array.from(document.querySelectorAll('input[name="prefHide"]:checked')).map(c => c.value);
-        try {
-          await apiClient.request('auth.js', { action: 'update_task_prefs', hidden_task_type_ids: ids });
-          showToast('Task preferences saved!', 'success');
-        } catch (err) { showToast(err.message, 'error'); }
-      });
-    } catch (err) {
-      box.innerHTML = `<div class="settings-card" style="color:var(--error);">Failed to load: ${err.message}</div>`;
-    }
-  }
-
   // ---------- BUSINESS (ADVERTISER) ----------
   async function loadBusinessTab() {
     const box = document.getElementById('tab-business');
@@ -331,8 +355,8 @@
 
       const s = setRes.data.settings || {};
       const defaults = s.campaign_defaults || {};
-      const taskTypes = refRes.data.task_types;
-      const interests = refRes.data.interests;
+      const taskTypes = refRes.data.task_types || [];
+      const interests = refRes.data.interests || [];
 
       box.innerHTML = `
         <div class="settings-card">
@@ -343,7 +367,6 @@
           <input type="text" id="bizSite" class="settings-input" placeholder="https://..." value="${s.business_website || ''}" />
           <label class="field-label">Contact Email</label>
           <input type="email" id="bizEmail" class="settings-input" placeholder="billing@company.com" value="${s.business_contact_email || ''}" />
-          <p style="font-size:12px; color:var(--text-secondary); margin-bottom:15px;">Your business name is shown to the review team and printed on receipts.</p>
         </div>
 
         <div class="settings-card">
@@ -357,14 +380,12 @@
           </div>
           <label class="field-label">Approval Window (hours, 12–336)</label>
           <input type="number" id="autoHours" class="settings-input" min="12" max="336" value="${s.auto_approve_hours || 48}" />
-          <p style="font-size:12px; color:var(--text-secondary);">If auto-approve is OFF, unreviewed tasks escalate to the YOLOTASK review team after this window instead of being paid automatically.</p>
         </div>
 
         <div class="settings-card">
           <h3 style="margin-bottom:15px;">Alerts</h3>
           <label class="field-label">Low Balance Alert Threshold (₦, blank = off)</label>
           <input type="number" id="lowThreshold" class="settings-input" min="0" placeholder="e.g. 5000" value="${s.low_balance_threshold ?? ''}" />
-          <p style="font-size:12px; color:var(--text-secondary);">You'll get an in-app alert (max once per day) when your balance drops below this while campaigns are LIVE.</p>
         </div>
 
         <div class="settings-card">
@@ -373,20 +394,15 @@
           <label class="field-label">Default Task Type</label>
           <select id="defTaskType" class="settings-select">
             <option value="">None</option>
-            ${taskTypes.map(t => `<option value="${t.id}" ${defaults.task_type_id === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+            ${taskTypes.map(t => `<option value="${t.id}" ${defaults.task_type_id === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
           </select>
           <div class="toggle-row">
             <div style="font-weight:600; font-size:14px;">Premium targeting ON by default</div>
             <label class="switch"><input type="checkbox" id="defTargeted" ${defaults.is_targeted ? 'checked' : ''} /><span class="slider"></span></label>
           </div>
-          <label class="field-label">Default Genders</label>
-          <div class="chip-grid">
-            <label class="chip"><input type="checkbox" name="defGender" value="male" ${(defaults.genders || []).includes('male') ? 'checked' : ''} /> Male</label>
-            <label class="chip"><input type="checkbox" name="defGender" value="female" ${(defaults.genders || []).includes('female') ? 'checked' : ''} /> Female</label>
-          </div>
           <label class="field-label">Default Interests</label>
           <div class="chip-grid" style="max-height:200px; overflow-y:auto;">
-            ${interests.map(i => `<label class="chip"><input type="checkbox" name="defInterest" value="${i.id}" ${(defaults.interest_ids || []).includes(i.id) ? 'checked' : ''} /> ${i.name}</label>`).join('')}
+            ${interests.map(i => `<label class="chip"><input type="checkbox" name="defInterest" value="${i.id}" ${(defaults.interest_ids || []).includes(i.id) ? 'checked' : ''} /> ${escapeHtml(i.name)}</label>`).join('')}
           </div>
         </div>
 
@@ -408,7 +424,7 @@
             campaign_defaults: {
               task_type_id: document.getElementById('defTaskType').value || null,
               is_targeted: document.getElementById('defTargeted').checked,
-              genders: Array.from(document.querySelectorAll('input[name="defGender"]:checked')).map(c => c.value),
+              genders: [],
               interest_ids: Array.from(document.querySelectorAll('input[name="defInterest"]:checked')).map(c => c.value)
             }
           });
@@ -419,7 +435,7 @@
         btn.disabled = false; btn.textContent = 'Save Business Settings';
       });
     } catch (err) {
-      box.innerHTML = `<div class="settings-card" style="color:var(--error);">Failed to load: ${err.message}</div>`;
+      box.innerHTML = `<div class="settings-card" style="color:var(--error);">Failed to load: ${escapeHtml(err.message)}</div>`;
     }
   }
 
