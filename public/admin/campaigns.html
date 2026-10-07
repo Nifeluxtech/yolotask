@@ -3,115 +3,90 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Campaigns - YOLOTASK</title>
+  <title>Campaign Reviews - YOLOTASK Admin</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
-  <header class="app-header">
-    <a href="/admin/dashboard.html" class="header-logo">YOLOTASK <span style="font-size:12px; color:var(--error); font-weight:700;">ADMIN</span></a>
-    <div class="header-user"><span id="adminName">Admin</span></div>
-  </header>
-
   <div class="admin-layout">
     <aside class="admin-sidebar">
-      <a href="/admin/dashboard.html" class="sidebar-link">Dashboard</a>
-      <a href="/admin/campaigns.html" class="sidebar-link active">Campaign Reviews</a>
-      <a href="/admin/users.html" class="sidebar-link">Users</a>
-      <a href="/admin/withdrawals.html" class="sidebar-link">Withdrawals</a>
-      <a href="/admin/settings.html" class="sidebar-link">Settings</a>
+      <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
+      <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/leaders.html">🏆 Leader Console</a>
+      <a href="/admin/campaigns.html" class="active">📝 Campaigns</a>
+      <a href="/admin/escalated.html">⚠️ Escalated</a>
+      <a href="/admin/withdrawals.html">💸 Withdrawals</a>
+      <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/announcements.html">📢 Announcements</a>
+      <a href="/admin/settings.html">⚙️ Settings</a>
+      <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
     </aside>
 
-    <main class="admin-content">
-      <h1 style="margin-bottom:20px;">Campaign Review Queue</h1>
-      <p style="color:var(--text-secondary); margin-bottom:30px;">Review submitted campaigns. Approving will lock the advertiser's funds and publish the task.</p>
-      
-      <div id="campaignQueue">
-        <div style="color:var(--text-secondary);">Loading queue...</div>
-      </div>
-    </main>
-  </div>
+    <main class="admin-main">
+      <header class="admin-header">
+        <div class="page-title">Campaign Reviews</div>
+        <span class="badge cyan" id="countBadge">0 pending</span>
+      </header>
 
-  <!-- Details Modal -->
-  <div id="detailsModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content" id="modalBody">
-      <!-- Populated by JS -->
-    </div>
+      <div id="list"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
+    </main>
   </div>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
     (async () => {
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
-      document.getElementById('adminName').textContent = profile.full_name;
+      load();
+    })();
 
-      const queue = document.getElementById('campaignQueue');
+    async function load() {
       try {
         const res = await apiClient.request('admin.js', { action: 'get_campaigns_for_review' });
-        const campaigns = res.data.campaigns;
+        const camps = res.data.campaigns || [];
+        document.getElementById('countBadge').textContent = camps.length + ' pending';
+        const box = document.getElementById('list');
 
-        if (campaigns.length === 0) {
-          queue.innerHTML = '<div style="color:var(--text-secondary); text-align:center; padding:40px;">No campaigns pending review.</div>';
+        if (camps.length === 0) {
+          box.innerHTML = '<div class="panel" style="text-align:center; color:var(--text-secondary); padding:40px;">No campaigns awaiting review. 🎉</div>';
           return;
         }
 
-        queue.innerHTML = `
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Campaign</th>
-                <th>Advertiser</th>
-                <th>Type</th>
-                <th>Budget</th>
-                <th>Workers</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${campaigns.map(c => `
-                <tr>
-                  <td data-label="Campaign">${c.title}</td>
-                  <td data-label="Advertiser">${c.advertiser.full_name}</td>
-                  <td data-label="Type">${c.task_types.name} ${c.is_targeted ? '(Premium)' : ''}</td>
-                  <td data-label="Budget">₦${c.total_budget.toLocaleString()}</td>
-                  <td data-label="Workers">${c.target_quantity}</td>
-                  <td data-label="Actions">
-                    <button class="btn-sm btn-info" onclick="viewDetails('${c.id}')">View</button>
-                    <button class="btn-sm btn-approve" onclick="reviewCampaign('${c.id}', 'APPROVED')">Approve</button>
-                    <button class="btn-sm btn-reject" onclick="reviewCampaign('${c.id}', 'REJECTED')">Reject</button>
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        `;
+        box.innerHTML = camps.map(c => `
+          <div class="panel" id="camp-${c.id}">
+            <div class="row-item" style="border:none; padding:0 0 10px;">
+              <div>
+                <div style="font-weight:700; font-size:15px;">${escapeHtml(c.title)}</div>
+                <div class="row-sub">${escapeHtml(c.advertiser?.full_name || 'Unknown')} • ${escapeHtml(c.task_types?.name || 'Task')} • ${c.completed_quantity}/${c.target_quantity} workers</div>
+              </div>
+              <span class="badge amber">${formatCurrency(c.total_budget)}</span>
+            </div>
+            <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; margin-bottom:14px; white-space:pre-wrap;">${escapeHtml(c.instructions || '').slice(0, 300)}</div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+              <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="review('${c.id}','REJECTED')">Reject</button>
+              <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="review('${c.id}','APPROVED')">Approve & Go Live</button>
+            </div>
+          </div>
+        `).join('');
       } catch (err) {
-        queue.innerHTML = `<div style="color:var(--error);">Error: ${err.message}</div>`;
+        document.getElementById('list').innerHTML = `<div class="panel" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
       }
-    })();
-
-    async function viewDetails(campaignId) {
-      // In a full implementation, fetch specific campaign details. 
-      // For MVP, we'll just alert or show a basic modal.
-      alert("Detailed view modal would open here showing instructions, targeting, and proof requirements.");
     }
 
-    async function reviewCampaign(campaignId, action) {
-      const note = prompt(`Enter admin note for ${action} (optional):`);
-      if (action === 'APPROVED' && !confirm('Approve and lock funds for this campaign?')) return;
-      if (action === 'REJECTED' && !confirm('Reject this campaign?')) return;
+    window.review = async function (campaignId, reviewAction) {
+      const note = reviewAction === 'REJECTED' ? (prompt('Reason for rejection (sent to advertiser):') || '') : '';
+      if (reviewAction === 'REJECTED' && note === null) return;
+      if (!confirm(`${reviewAction === 'APPROVED' ? 'Approve and set LIVE?' : 'Reject this campaign?'}`)) return;
 
       try {
-        await apiClient.request('admin.js', { action: 'review_campaign', campaignId, reviewAction: action, adminNote: note });
-        alert(`Campaign ${action.toLowerCase()} successfully.`);
-        window.location.reload();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
+        await apiClient.request('admin.js', { action: 'review_campaign', campaignId, reviewAction, adminNote: note });
+        showToast(`Campaign ${reviewAction.toLowerCase()}.`, 'success');
+        document.getElementById(`camp-${campaignId}`)?.remove();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
   </script>
 </body>
 </html>
