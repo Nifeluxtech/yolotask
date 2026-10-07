@@ -5,49 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tasks - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
-  <link rel="stylesheet" href="/css/tasks.css" />
-  <link rel="stylesheet" href="/css/mobile-nav.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <style>
-    .tabs { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px; }
-    .tab-btn { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 8px 16px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
-    .tab-btn.active { background: var(--accent); color: var(--bg-primary); border-color: var(--accent); font-weight: 600; }
+    .seg { display: flex; gap: 8px; margin-bottom: 14px; }
+    .seg button { flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 10px; border-radius: 12px; cursor: pointer; font-weight: 700; font-size: 13px; }
+    .seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .search-box { width: 100%; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 14px; color: var(--text-primary); margin-bottom: 16px; font-size: 14px; }
+    .task-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 14px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .task-card:active { transform: scale(0.99); }
+    .prem { background: var(--warning-bg); color: var(--warning); padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 800; }
+    .gen { background: var(--accent-glow); color: var(--accent); padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 800; }
   </style>
 </head>
 <body>
-  <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <div style="font-weight:800; color:var(--accent);">YOLOTASK</div>
+    <a href="/earner/notifications.html" style="color:var(--text-secondary); text-decoration:none; font-size:20px;" aria-label="Notifications">🔔</a>
   </header>
 
-  <div class="container" style="padding: 30px 20px; max-width: 1200px; margin: 0 auto;">
-    <h1 style="margin-bottom:10px;">Available Tasks</h1>
-    
-    <!-- Filter Tabs -->
-    <div class="tabs">
-      <button class="tab-btn active" onclick="filterTasks('all', this)">All Tasks</button>
-      <button class="tab-btn" onclick="filterTasks('general', this)">General</button>
-      <button class="tab-btn" onclick="filterTasks('premium', this)">★ Premium (2x Pay)</button>
+  <div class="container" style="padding: 22px 20px; max-width: 720px;">
+    <h1 style="font-size:22px; margin-bottom:14px;">Available Tasks</h1>
+
+    <input type="search" id="searchBox" class="search-box" placeholder="Search tasks..." />
+
+    <div class="seg" id="feedTabs">
+      <button class="active" data-f="all">All</button>
+      <button data-f="general">General</button>
+      <button data-f="premium">★ Premium</button>
     </div>
 
-    <div id="taskFeed" class="task-feed" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
-      <div class="skeleton skeleton-card"></div>
-    </div>
+    <div id="taskFeed"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
   </div>
-
-  <nav class="mobile-bottom-nav">
-    <a href="/earner/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
-    <a href="/earner/tasks.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
-    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
-    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
-    <a href="/earner/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
-  </nav>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
     let allTasks = [];
+    let filter = 'all';
+    let query = '';
 
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
@@ -55,46 +51,54 @@
 
       try {
         const res = await apiClient.request('tasks.js', { action: 'get_feed' });
-        allTasks = res.data.tasks;
-        renderTasks('all');
+        allTasks = res.data.tasks || [];
+        render();
       } catch (err) {
-        document.getElementById('taskFeed').innerHTML = `<div style="color:var(--error);">Error loading tasks.</div>`;
+        document.getElementById('taskFeed').innerHTML = `<div class="task-card" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
       }
     })();
 
-    function renderTasks(filter) {
+    document.getElementById('feedTabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      document.querySelectorAll('#feedTabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filter = btn.dataset.f;
+      render();
+    });
+
+    document.getElementById('searchBox').addEventListener('input', (e) => {
+      query = e.target.value.toLowerCase().trim();
+      render();
+    });
+
+    function render() {
+      let list = allTasks;
+      if (filter === 'general') list = list.filter(t => !t.is_premium);
+      if (filter === 'premium') list = list.filter(t => t.is_premium);
+      if (query) list = list.filter(t => (t.title + ' ' + t.task_type).toLowerCase().includes(query));
+
       const feed = document.getElementById('taskFeed');
-      let filtered = allTasks;
 
-      if (filter === 'general') filtered = allTasks.filter(t => !t.is_premium);
-      if (filter === 'premium') filtered = allTasks.filter(t => t.is_premium);
-
-      if (filtered.length === 0) {
-        feed.innerHTML = '<div style="color:var(--text-secondary); text-align:center; grid-column: 1/-1; padding: 40px;">No tasks found in this category.</div>';
+      if (list.length === 0) {
+        feed.innerHTML = '<div class="task-card" style="justify-content:center; color:var(--text-secondary); padding:40px; text-align:center;">No tasks match right now.<br/>Check back soon — new campaigns drop daily.</div>';
         return;
       }
 
-      feed.innerHTML = filtered.map(task => `
-        <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
-          <div>
-            <span class="status-badge ${task.is_premium ? 'status-live' : 'status-draft'}" style="margin-bottom:10px; display:inline-block;">
-              ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
-            </span>
-            <h3 style="margin-bottom:5px;">${task.title}</h3>
-            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">${task.task_type} • ${task.slots_left} slots left</p>
+      feed.innerHTML = list.map(t => `
+        <a href="/earner/task-details.html?id=${t.id}" style="text-decoration:none; color:inherit;">
+          <div class="task-card">
+            <div style="min-width:0; flex:1;">
+              <span class="${t.is_premium ? 'prem' : 'gen'}">${t.is_premium ? '★ PREMIUM 2x' : 'GENERAL'}</span>
+              <div style="font-weight:700; font-size:15px; margin:8px 0 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
+              <div style="font-size:12px; color:var(--text-secondary);">${escapeHtml(t.task_type)} • ${t.slots_left} slots left</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+              <div style="font-weight:800; color:var(--success); font-size:16px;">${formatCurrency(t.reward)}</div>
+              <div style="font-size:11px; color:var(--accent); font-weight:700; margin-top:4px;">Start →</div>
+            </div>
           </div>
-          <div class="flex justify-between items-center">
-            <div style="font-size:18px; font-weight:700; color:var(--success);">${formatCurrency(task.reward)}</div>
-            <a href="/earner/task-details.html?id=${task.id}" class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Start Task</a>
-          </div>
-        </div>
+        </a>
       `).join('');
-    }
-
-    function filterTasks(type, btn) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      renderTasks(type);
     }
   </script>
 </body>
