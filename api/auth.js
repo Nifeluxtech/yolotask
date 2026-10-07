@@ -7,6 +7,16 @@ const isActive = (r) =>
   r.is_active === undefined || r.is_active === null ||
   r.is_active === true || r.is_active === 'true' || r.is_active === 't';
 
+// Run a Supabase query, retry once after 400ms on error
+async function q(fn) {
+  const first = await fn();
+  if (!first.error) return first;
+  await new Promise(r => setTimeout(r, 400));
+  const second = await fn();
+  if (second.error) console.error('QUERY FAILED AFTER RETRY:', second.error);
+  return second;
+}
+
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
@@ -95,11 +105,11 @@ module.exports = async (req, res) => {
           if (!/^\+?\d{10,14}$/.test(cleanPhone)) return sendError(res, 'VALIDATION_ERROR', 'Invalid phone number format.', 400);
         }
 
-        const { data, error } = await supabaseAdmin.from('profiles')
+        const { data, error } = await q(() => supabaseAdmin.from('profiles')
           .update({ full_name: full_name.trim(), phone: cleanPhone, updated_at: new Date().toISOString() })
           .eq('id', profile.id)
           .select('id, full_name, role, is_suspended, created_at, referral_code, phone, avatar_url')
-          .single();
+          .single());
 
         if (error) throw error;
         return sendSuccess(res, { profile: data }, 'Profile updated.');
@@ -116,12 +126,24 @@ module.exports = async (req, res) => {
         if (buffer.length > 500 * 1024) return sendError(res, 'FILE_TOO_LARGE', 'Image must be under 500KB.', 400);
 
         const path = `${profile.id}.jpg`;
-        const { error: upErr } = await supabaseAdmin.storage.from('avatars').upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
-        if (upErr) throw upErr;
+
+        // Retry once on storage flakiness
+        let up = await supabaseAdmin.storage.from('avatars').upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
+        if (up.error) {
+          await new Promise(r => setTimeout(r, 500));
+          up = await supabaseAdmin.storage.from('avatars').upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
+        }
+        if (up.error) {
+          console.error('Avatar upload error:', up.error);
+          throw { code: 'UPLOAD_FAILED', message: 'Storage error: ' + (up.error.message || 'upload failed'), statusCode: 502 };
+        }
 
         const { data: pub } = supabaseAdmin.storage.from('avatars').getPublicUrl(path);
         const publicUrl = `${pub.publicUrl}?t=${Date.now()}`;
-        await supabaseAdmin.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id);
+
+        const { error: dbErr } = await q(() => supabaseAdmin.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id));
+        if (dbErr) throw dbErr;
+
         return sendSuccess(res, { avatar_url: publicUrl }, 'Avatar updated.');
       }
 
@@ -147,20 +169,22 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'All devices signed out.');
       }
 
-      // ---------- SETTINGS DATA (bulletproof, versioned) ----------
+      // ---------- SETTINGS DATA (retry + LOUD errors) ----------
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
 
         const [interestsRes, taskTypesRes, myInterestsRes, hiddenRes] = await Promise.all([
-          supabaseAdmin.from('interests').select('*'),
-          supabaseAdmin.from('task_types').select('*'),
-          supabaseAdmin.from('user_interests').select('interest_id').eq('user_id', profile.id),
-          supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle()
+          q(() => supabaseAdmin.from('interests').select('*')),
+          q(() => supabaseAdmin.from('task_types').select('*')),
+          q(() => supabaseAdmin.from('user_interests').select('interest_id').eq('user_id', profile.id)),
+          q(() => supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle())
         ]);
 
-        if (interestsRes.error) console.error('get_settings_data interests error:', interestsRes.error);
-        if (taskTypesRes.error) console.error('get_settings_data task_types error:', taskTypesRes.error);
-        if (myInterestsRes.error) console.error('get_settings_data user_interests error:', myInterestsRes.error);
+        // FAIL LOUDLY instead of pretending the platform has no data
+        if (interestsRes.error || taskTypesRes.error) {
+          const msg = (interestsRes.error && interestsRes.error.message) || (taskTypesRes.error && taskTypesRes.error.message) || 'Unknown DB error';
+          return sendError(res, 'SETTINGS_LOAD_FAILED', 'Database temporarily unavailable: ' + msg, 502);
+        }
 
         const interests = (interestsRes.data || [])
           .filter(isActive)
@@ -173,7 +197,7 @@ module.exports = async (req, res) => {
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
         return sendSuccess(res, {
-          version: 'auth-v4',
+          version: 'auth-v5',
           interests,
           task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
@@ -190,7 +214,8 @@ module.exports = async (req, res) => {
           return sendError(res, 'VALIDATION_ERROR', 'Select at least 3 interests.', 400);
         }
 
-        const { data: valid } = await supabaseAdmin.from('interests').select('id').in('id', interest_ids);
+        const { data: valid, error: vErr } = await q(() => supabaseAdmin.from('interests').select('id').in('id', interest_ids));
+        if (vErr) throw vErr;
         if (!valid || valid.length !== interest_ids.length) {
           return sendError(res, 'VALIDATION_ERROR', 'One or more interests are invalid.', 400);
         }
@@ -214,13 +239,13 @@ module.exports = async (req, res) => {
 
         let clean = hidden_task_type_ids;
         if (clean.length > 0) {
-          const { data: valid } = await supabaseAdmin.from('task_types').select('id').in('id', clean);
+          const { data: valid } = await q(() => supabaseAdmin.from('task_types').select('id').in('id', clean));
           clean = (valid || []).map(t => t.id);
         }
 
-        const { error } = await supabaseAdmin.from('profiles')
+        const { error } = await q(() => supabaseAdmin.from('profiles')
           .update({ hidden_task_types: clean, updated_at: new Date().toISOString() })
-          .eq('id', profile.id);
+          .eq('id', profile.id));
 
         if (error) throw error;
         return sendSuccess(res, {}, 'Task preferences saved.');
@@ -228,16 +253,16 @@ module.exports = async (req, res) => {
 
       case 'get_notifications': {
         const { profile } = await getAuthenticatedUser(req);
-        const { data, error } = await supabaseAdmin.from('notifications').select('*')
-          .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(50);
+        const { data, error } = await q(() => supabaseAdmin.from('notifications').select('*')
+          .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(50));
         if (error) throw error;
         return sendSuccess(res, { notifications: data || [] });
       }
 
       case 'mark_notifications_read': {
         const { profile } = await getAuthenticatedUser(req);
-        await supabaseAdmin.from('notifications').update({ is_read: true })
-          .eq('user_id', profile.id).eq('is_read', false);
+        await q(() => supabaseAdmin.from('notifications').update({ is_read: true })
+          .eq('user_id', profile.id).eq('is_read', false));
         return sendSuccess(res, {}, 'Marked as read.');
       }
 
