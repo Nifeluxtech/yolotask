@@ -33,6 +33,13 @@
     document.head.appendChild(style);
   }
 
+  // Avatar image fallback: if the picture fails to load, show initials instead of an empty circle
+  window.__avatarFallback = function (imgEl, initials) {
+    const circle = imgEl.parentNode;
+    imgEl.remove();
+    circle.textContent = initials;
+  };
+
   let currentProfile = null;
 
   async function init() {
@@ -92,16 +99,19 @@
   // ---------- PROFILE ----------
   function renderProfileTab(profile) {
     const box = document.getElementById('tab-profile');
-    const avatarHtml = profile.avatar_url ? `<img src="${profile.avatar_url}" alt="avatar" />` : initialsOf(profile.full_name);
+    const initials = initialsOf(profile.full_name);
+    const avatarHtml = profile.avatar_url
+      ? `<img src="${profile.avatar_url}" alt="avatar" onerror="__avatarFallback(this, '${initials}')" />`
+      : initials;
 
     box.innerHTML = `
       <div class="settings-card">
         <div class="avatar-row">
           <div class="avatar-circle" id="avatarCircle">${avatarHtml}</div>
           <div>
-            <div style="font-weight:700; font-size:18px; margin-bottom:4px;">${profile.full_name}</div>
+            <div style="font-weight:700; font-size:18px; margin-bottom:4px;">${escapeHtml(profile.full_name)}</div>
             <div style="color:var(--text-secondary); font-size:14px; margin-bottom:10px;">
-              ${profile.email || ''}
+              ${escapeHtml(profile.email || '')}
               ${profile.email_verified ? '<span class="verified-badge">VERIFIED</span>' : '<span class="unverified-badge">UNVERIFIED</span>'}
             </div>
             <label class="btn btn-outline" style="padding:8px 16px; font-size:13px; cursor:pointer;">
@@ -125,8 +135,11 @@
       const reader = new FileReader();
       reader.onload = async () => {
         try {
+          showToast('Uploading avatar...', 'success');
           const res = await apiClient.request('auth.js', { action: 'upload_avatar', dataUrl: reader.result });
-          document.getElementById('avatarCircle').innerHTML = `<img src="${res.data.avatar_url}" alt="avatar" />`;
+          const newInitials = initialsOf(profile.full_name);
+          document.getElementById('avatarCircle').innerHTML =
+            `<img src="${res.data.avatar_url}" alt="avatar" onerror="__avatarFallback(this, '${newInitials}')" />`;
           cacheProfile({ avatar_url: res.data.avatar_url });
           showToast('Avatar updated!', 'success');
         } catch (err) { showToast(err.message, 'error'); }
@@ -153,7 +166,7 @@
     });
   }
 
-  // ---------- TASK PREFS (EARNER) with loud diagnostics ----------
+  // ---------- TASK PREFS ----------
   async function loadTasksTab() {
     const box = document.getElementById('tab-tasks');
     box.innerHTML = '<div class="settings-card">Loading preferences...</div>';
@@ -166,14 +179,11 @@
       const my_interest_ids = Array.isArray(d.my_interest_ids) ? d.my_interest_ids : [];
       const my_hidden_task_ids = Array.isArray(d.my_hidden_task_ids) ? d.my_hidden_task_ids : [];
 
-      // LOUD EMPTY STATE: show raw server payload so mobile users can screenshot the cause
       if (interests.length === 0 && task_types.length === 0) {
         box.innerHTML = `
           <div class="settings-card" style="border-color: var(--error);">
             <h3 style="color:var(--error); margin-bottom:10px;">No platform data (0 interests, 0 task types)</h3>
-            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
-              The database tables are empty or the API is outdated. Screenshot this box and send it:
-            </p>
+            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">Screenshot this box and send it:</p>
             <div class="diag-box">${escapeHtml(JSON.stringify(d).slice(0, 500))}</div>
           </div>
         `;
@@ -218,13 +228,14 @@
       box.innerHTML = `
         <div class="settings-card" style="border-color: var(--error);">
           <h3 style="color:var(--error); margin-bottom:10px;">Failed to load preferences</h3>
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">This is usually a temporary database hiccup — tap your Task Prefs tab again in a moment. Screenshot if it persists:</p>
           <div class="diag-box">${escapeHtml(err.message)}</div>
         </div>
       `;
     }
   }
 
-  // ---------- PAYOUTS (EARNER) ----------
+  // ---------- PAYOUTS ----------
   async function loadPayoutsTab() {
     const box = document.getElementById('tab-payouts');
     box.innerHTML = '<div class="settings-card">Loading payout accounts...</div>';
@@ -248,7 +259,7 @@
           <label class="field-label">Bank</label>
           <select id="bankSelect" class="settings-select">
             <option value="">Select bank...</option>
-            ${banks.map(b => `<option value="${b.code}">${escapeHtml(b.name)}</option>`).join('')}
+            ${banks.map(b => `<option value="${escapeHtml(b.code)}">${escapeHtml(b.name)}</option>`).join('')}
           </select>
           <label class="field-label">Account Number (10 digits)</label>
           <input type="text" id="acctNumber" class="settings-input" maxlength="10" inputmode="numeric" placeholder="0123456789" />
@@ -342,7 +353,7 @@
     } catch (err) { showToast(err.message, 'error'); }
   };
 
-  // ---------- BUSINESS (ADVERTISER) ----------
+  // ---------- BUSINESS ----------
   async function loadBusinessTab() {
     const box = document.getElementById('tab-business');
     box.innerHTML = '<div class="settings-card">Loading business settings...</div>';
