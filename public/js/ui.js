@@ -131,17 +131,18 @@ function showInstallBanner() {
   });
 }
 
-// ---------- PUSH NOTIFICATIONS (OneSignal) ----------
+// ---------- PUSH NOTIFICATIONS (OneSignal v16) ----------
 (function initPush() {
   if (!ONESIGNAL_APP_ID) return;
 
-  window.OneSignal = window.OneSignal || [];
-  OneSignal.push(['init', {
-    appId: ONESIGNAL_APP_ID,
-    autoResubscribe: true,
-    notifyButton: { enable: false },
-    serviceWorkerParam: { scope: '/' }
-  }]);
+  // v16 SDK initialization pattern
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+      appId: ONESIGNAL_APP_ID,
+      allowLocalhostAsSecureOrigin: true,
+    });
+  });
 
   const s = document.createElement('script');
   s.src = 'https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js';
@@ -153,8 +154,10 @@ function showInstallBanner() {
     try {
       const cached = JSON.parse(localStorage.getItem('yolotask_user') || 'null');
       if (cached && cached.id && window.OneSignal) {
-        OneSignal.push(() => {
-          if (OneSignal.User && OneSignal.User.addTag) OneSignal.User.addTag('user_id', cached.id);
+        OneSignalDeferred.push(async function(OneSignal) {
+          if (OneSignal.User && OneSignal.User.addTag) {
+            OneSignal.User.addTag('user_id', cached.id);
+          }
         });
       }
     } catch (e) {}
@@ -189,11 +192,9 @@ function showPushBanner() {
   document.body.appendChild(bar);
 
   document.getElementById('pushEnable').addEventListener('click', () => {
-    if (window.OneSignal) {
-      OneSignal.push(() => {
-        if (OneSignal.Slidedown && OneSignal.Slidedown.promptPush) OneSignal.Slidedown.promptPush();
-      });
-    }
+    OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.Slidedown.promptPush();
+    });
     bar.remove();
   });
   document.getElementById('pushDismiss').addEventListener('click', () => {
