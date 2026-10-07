@@ -5,59 +5,116 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Leaderboard - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
-  <link rel="stylesheet" href="/css/admin.css" />
+  <link rel="stylesheet" href="/css/mobile-nav.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .seg { display: flex; gap: 8px; margin-bottom: 12px; }
+    .seg button { flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 10px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 13px; }
+    .seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .lb-row { display: flex; align-items: center; gap: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 10px; }
+    .lb-row.me { border-color: var(--accent); background: var(--accent-glow); }
+    .lb-rank { width: 34px; height: 34px; border-radius: 50%; background: var(--bg-tertiary, var(--bg-primary)); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: var(--text-secondary); flex-shrink: 0; }
+    .lb-rank.top1 { background: linear-gradient(135deg, #fbbf24, #d97706); color: #fff; }
+    .lb-rank.top2 { background: linear-gradient(135deg, #cbd5e1, #94a3b8); color: #fff; }
+    .lb-rank.top3 { background: linear-gradient(135deg, #d97706, #92400e); color: #fff; }
+    .lb-avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent-glow); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 800; overflow: hidden; flex-shrink: 0; }
+    .lb-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  </style>
 </head>
 <body>
-  <header class="app-header">
-    <a href="/earner/dashboard.html" class="header-logo">← Back</a>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <a href="/earner/dashboard.html" style="color:var(--accent); text-decoration:none; font-weight:600;">← Back</a>
+    <div style="font-weight:800; color:var(--accent);">Leaderboard</div>
   </header>
 
-  <div class="dashboard-container">
-    <h1 style="margin-bottom:10px;">Top Earners Leaderboard</h1>
-    <p style="color:var(--text-secondary); margin-bottom:30px;">The most active workers on YOLOTASK this month.</p>
-    
-    <div id="leaderboardList">
-      <div style="color:var(--text-secondary); text-align:center; padding:40px;">Loading leaderboard...</div>
+  <div class="container" style="padding: 25px 20px; max-width: 720px;">
+    <div class="seg" id="periodSeg">
+      <button class="active" data-v="week">This Week</button>
+      <button data-v="month">This Month</button>
     </div>
+    <div class="seg" id="kindSeg">
+      <button class="active" data-v="tasks">🏆 Top Workers</button>
+      <button data-v="referrals">🤝 Top Referrers</button>
+    </div>
+    <p style="font-size:12px; color:var(--text-secondary); margin-bottom:18px;" id="lbNote"></p>
+    <div id="lbList"><div class="skeleton skeleton-card"></div></div>
   </div>
+
+  <nav class="mobile-bottom-nav">
+    <a href="/earner/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
+    <a href="/earner/tasks.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
+    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
+    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
+    <a href="/earner/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
+  </nav>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
-    (async () => {
-      const profile = await checkAuthAndRedirect('earner');
-      if (!profile) return;
+    let me = null;
+    let period = 'week';
+    let kind = 'tasks';
 
-      const list = document.getElementById('leaderboardList');
-      try {
-        // Fetch top 50 earners by tasks_completed
-        const { data, error } = await apiClient.request('admin.js', { action: 'get_leaderboard' }); 
-        // Note: You will need to add a simple 'get_leaderboard' action to /api/admin.js that selects from earner_reputation joined with profiles.
-        
-        if (data && data.leaders) {
-          list.innerHTML = `
-            <table class="data-table">
-              <thead><tr><th>Rank</th><th>User</th><th>Tasks Completed</th><th>Rank Tier</th></tr></thead>
-              <tbody>
-                ${data.leaders.map((u, i) => `
-                  <tr>
-                    <td data-label="Rank">#${i + 1}</td>
-                    <td data-label="User">${u.full_name.substring(0, 3)}***</td>
-                    <td data-label="Tasks">${u.tasks_completed}</td>
-                    <td data-label="Tier"><span class="status-badge status-live">${u.rank}</span></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          `;
-        } else {
-          list.innerHTML = '<div style="color:var(--text-secondary); text-align:center;">No data available yet.</div>';
-        }
-      } catch (err) {
-        list.innerHTML = `<div style="color:var(--error);">Error: ${err.message}</div>`;
-      }
+    (async () => {
+      me = await checkAuthAndRedirect('earner');
+      if (!me) return;
+      load();
     })();
+
+    document.getElementById('periodSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      document.querySelectorAll('#periodSeg button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active'); period = btn.dataset.v; load();
+    });
+    document.getElementById('kindSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      document.querySelectorAll('#kindSeg button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active'); kind = btn.dataset.v; load();
+    });
+
+    async function load() {
+      const list = document.getElementById('lbList');
+      list.innerHTML = '<div class="skeleton skeleton-card"></div>';
+      document.getElementById('lbNote').textContent =
+        kind === 'tasks'
+          ? `Ranked by approved tasks (${period === 'week' ? 'this week' : 'this month'}). Top leaders earn admin bonuses!`
+          : `Ranked by successful referrals (${period === 'week' ? 'this week' : 'this month'}).`;
+
+      try {
+        const res = await apiClient.request('tasks.js', { action: 'get_leaderboard', period, kind });
+        const leaders = res.data.leaders || [];
+
+        if (leaders.length === 0) {
+          list.innerHTML = '<div class="lb-row" style="justify-content:center; color:var(--text-secondary);">No activity yet this period. Be the first!</div>';
+          return;
+        }
+
+        list.innerHTML = leaders.map((l, i) => {
+          const rankClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+          const isMe = l.user_id === me.id;
+          const initials = (l.full_name || 'U').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
+          return `
+            <div class="lb-row ${isMe ? 'me' : ''}">
+              <div class="lb-rank ${rankClass}">${medal}</div>
+              <div class="lb-avatar">${l.avatar_url ? `<img src="${l.avatar_url}" alt="" />` : initials}</div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  ${escapeHtml(l.full_name || 'Anonymous')} ${isMe ? '<span style="color:var(--accent); font-size:11px;">(YOU)</span>' : ''}
+                </div>
+                <div style="font-size:12px; color:var(--text-secondary);">
+                  ${kind === 'tasks' ? `${l.metric} tasks approved` : `${l.metric} referrals earned`}
+                </div>
+              </div>
+              <div style="font-weight:800; color:var(--success); font-size:14px;">${formatCurrency(l.total_reward)}</div>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        list.innerHTML = `<div class="lb-row" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
+      }
+    }
   </script>
 </body>
 </html>
