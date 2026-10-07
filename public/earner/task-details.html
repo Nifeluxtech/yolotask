@@ -7,114 +7,127 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <style>
-    .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-    .reward-badge { background: var(--success-bg); color: var(--success); padding: 8px 16px; border-radius: 20px; font-weight: 700; font-size: 18px; }
-    .info-box { background: var(--bg-primary); padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid var(--accent); }
-    .info-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 5px; }
-    .info-value { font-size: 15px; color: var(--text-primary); word-break: break-all; }
-    .proof-input { width: 100%; padding: 14px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); margin-bottom: 15px; }
+    .detail-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px; margin-bottom: 16px; }
+    .reward-pill { background: var(--success-bg); color: var(--success); padding: 8px 18px; border-radius: 20px; font-weight: 800; font-size: 18px; }
+    .info-box { background: var(--bg-primary); padding: 14px; border-radius: 10px; margin: 12px 0; border-left: 4px solid var(--accent); word-break: break-all; }
+    .info-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .status-big { padding: 6px 14px; border-radius: 14px; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .sb-PENDING_REVIEW { background: var(--warning-bg); color: var(--warning); }
+    .sb-APPROVED { background: var(--success-bg); color: var(--success); }
+    .sb-REJECTED { background: var(--error-bg); color: var(--error); }
+    .sb-UNDER_REVIEW { background: var(--accent-glow); color: var(--accent); }
   </style>
 </head>
 <body>
-  <header style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <a href="/earner/tasks.html" style="color: var(--accent); text-decoration: none; font-weight: 600;">← Back to Tasks</a>
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+    <a href="/earner/tasks.html" style="color:var(--accent); text-decoration:none; font-weight:600;">← Tasks</a>
+    <div style="font-weight:800; color:var(--accent);">Task Details</div>
   </header>
 
-  <div class="container" style="padding: 30px 20px; max-width: 800px; margin: 0 auto;">
-    <div id="taskContent">
-      <div class="skeleton skeleton-title" style="width: 60%;"></div>
-      <div class="skeleton skeleton-text" style="width: 100%;"></div>
-      <div class="skeleton skeleton-text" style="width: 80%;"></div>
-    </div>
+  <div class="container" style="padding: 22px 20px; max-width: 720px;">
+    <div id="content"><div class="skeleton skeleton-card"></div></div>
   </div>
 
-  <!-- CRITICAL: Load ui.js BEFORE using formatCurrency -->
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
-  
   <script>
+    let taskId = null;
+
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
 
-      const urlParams = new URLSearchParams(window.location.search);
-      const taskId = urlParams.get('id');
+      taskId = new URLSearchParams(window.location.search).get('id');
+      const box = document.getElementById('content');
 
-      if (!taskId) {
-        window.location.href = '/earner/tasks.html';
-        return;
-      }
-
-      const content = document.getElementById('taskContent');
+      if (!taskId) { window.location.href = '/earner/tasks.html'; return; }
 
       try {
-        // Fetch task details
-        const res = await apiClient.request('tasks.js', { action: 'get_details', taskId });
-        const task = res.data.task;
+        const [taskRes, subsRes] = await Promise.all([
+          apiClient.request('tasks.js', { action: 'get_details', taskId }),
+          apiClient.request('tasks.js', { action: 'get_my_submissions' })
+        ]);
 
-        // Render UI
-        content.innerHTML = `
-          <div class="task-header">
-            <div>
-              <span class="status-badge ${task.is_premium ? 'status-live' : 'status-draft'}" style="margin-bottom:10px; display:inline-block;">
-                ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
-              </span>
-              <h1 style="margin: 10px 0;">${task.title}</h1>
-              <p style="color: var(--text-secondary);">${task.task_type}</p>
+        const task = taskRes.data.task;
+        const existing = (subsRes.data.submissions || []).find(s => s.campaign_id === taskId);
+
+        let submissionBlock = '';
+        if (existing) {
+          submissionBlock = `
+            <div class="detail-card" style="text-align:center;">
+              <div class="status-big sb-${existing.status}" style="display:inline-block; margin-bottom:10px;">${existing.status.replace(/_/g, ' ')}</div>
+              <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
+                You submitted this task on ${formatDate(existing.created_at)}.
+                ${existing.status === 'PENDING_REVIEW' ? 'The advertiser/review team is checking your proof.' : ''}
+                ${existing.status === 'REJECTED' ? 'Unfortunately your proof was not accepted.' : ''}
+                ${existing.status === 'APPROVED' ? 'Reward has been credited to your wallet. 🎉' : ''}
+              </p>
+              <a href="/earner/my-submissions.html" class="btn btn-outline" style="padding:10px 18px; font-size:13px;">View All My Submissions</a>
             </div>
-            <div class="reward-badge">${formatCurrency(task.reward)}</div>
+          `;
+        }
+
+        box.innerHTML = `
+          <div class="detail-card">
+            <div class="flex justify-between items-center" style="gap:10px; flex-wrap:wrap;">
+              <span class="${task.is_premium ? 'prem' : 'gen'}" style="background:${task.is_premium ? 'var(--warning-bg)' : 'var(--accent-glow)'}; color:${task.is_premium ? 'var(--warning)' : 'var(--accent)'}; padding:3px 10px; border-radius:12px; font-size:10px; font-weight:800;">
+                ${task.is_premium ? '★ PREMIUM 2x' : 'GENERAL'}
+              </span>
+              <span class="reward-pill">${formatCurrency(task.reward)}</span>
+            </div>
+            <h1 style="font-size:20px; margin:12px 0 6px;">${escapeHtml(task.title)}</h1>
+            <div style="font-size:13px; color:var(--text-secondary);">${escapeHtml(task.task_type)} • ${task.slots_left} slots left</div>
           </div>
 
-          <div class="card">
-            <h3 style="margin-bottom: 10px;">Instructions</h3>
-            <p style="color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap;">${task.instructions}</p>
-            
+          <div class="detail-card">
+            <div class="info-label">Instructions</div>
+            <p style="font-size:14px; color:var(--text-secondary); line-height:1.7; white-space:pre-wrap;">${escapeHtml(task.instructions)}</p>
+
             <div class="info-box">
               <div class="info-label">Destination Link</div>
-              <a href="${task.destination_link}" target="_blank" class="info-value" style="color: var(--accent); text-decoration: none;">
-                ${task.destination_link} 
-              </a>
+              <a href="${escapeHtml(task.destination_link)}" target="_blank" style="color:var(--accent); text-decoration:none; font-size:14px;">${escapeHtml(task.destination_link)}</a>
             </div>
 
+            ${task.proof_requirements ? `
             <div class="info-box" style="border-left-color: var(--warning);">
               <div class="info-label">Proof Requirement</div>
-              <div class="info-value">${task.proof_requirements || 'Provide a valid URL proving you completed the task.'}</div>
-            </div>
-
-            <hr style="border: 0; border-top: 1px solid var(--border); margin: 25px 0;">
-
-            <h3 style="margin-bottom: 15px;">Submit Your Proof</h3>
-            <form id="submitForm">
-              <label style="display:block; margin-bottom:8px; font-size:14px; color:var(--text-secondary);">Paste your proof link below</label>
-              <input type="url" id="proofUrl" class="proof-input" placeholder="https://..." required />
-              <button type="submit" class="btn btn-primary w-full" id="submitBtn">Submit for Review</button>
-            </form>
+              <div style="font-size:13px; color:var(--text-secondary);">${escapeHtml(task.proof_requirements)}</div>
+            </div>` : ''}
           </div>
+
+          ${submissionBlock}
+
+          ${!existing ? `
+          <div class="detail-card">
+            <div class="info-label">Submit Your Proof</div>
+            <input type="url" id="proofUrl" placeholder="https://... (paste proof link)" style="width:100%; padding:13px; background:var(--bg-primary); border:1px solid var(--border); border-radius:10px; color:var(--text-primary); margin:8px 0 14px; font-size:14px;" />
+            <button class="btn btn-primary w-full" id="submitBtn">Submit for Review</button>
+            <p style="font-size:11px; color:var(--text-muted); margin-top:10px; text-align:center;">Fake proofs lead to instant rejection and reputation loss.</p>
+          </div>` : ''}
         `;
 
-        // Handle Form Submission
-        document.getElementById('submitForm').addEventListener('submit', async (e) => {
-          e.preventDefault();
-          const btn = document.getElementById('submitBtn');
-          const proofUrl = document.getElementById('proofUrl').value;
-
-          btn.disabled = true;
-          btn.textContent = 'Submitting...';
-
-          try {
-            await apiClient.request('tasks.js', { action: 'submit', taskId, proofUrl });
-            showToast('Task submitted successfully!', 'success');
-            setTimeout(() => window.location.href = '/earner/tasks.html', 2000);
-          } catch (err) {
-            showToast(err.message, 'error');
-            btn.disabled = false;
-            btn.textContent = 'Submit for Review';
-          }
-        });
-
+        const btn = document.getElementById('submitBtn');
+        if (btn) {
+          btn.addEventListener('click', async () => {
+            const proofUrl = document.getElementById('proofUrl').value.trim();
+            if (!/^https?:\/\/.+\..+/.test(proofUrl)) {
+              showToast('Enter a valid http/https proof link.', 'error');
+              return;
+            }
+            btn.disabled = true; btn.textContent = 'Submitting...';
+            try {
+              await apiClient.request('tasks.js', { action: 'submit', taskId, proofUrl });
+              showToast('Submitted! Track it in My Submissions.', 'success');
+              setTimeout(() => window.location.reload(), 1200);
+            } catch (err) {
+              showToast(err.message, 'error');
+              btn.disabled = false; btn.textContent = 'Submit for Review';
+            }
+          });
+        }
       } catch (err) {
-        content.innerHTML = `<div class="card" style="color:var(--error); text-align:center; padding:40px;">Error loading task: ${err.message}</div>`;
+        box.innerHTML = `<div class="detail-card" style="color:var(--error); text-align:center;">${escapeHtml(err.message)}<br/><a href="/earner/tasks.html" style="color:var(--accent);">Back to tasks</a></div>`;
       }
     })();
   </script>
