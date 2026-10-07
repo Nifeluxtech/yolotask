@@ -5,43 +5,68 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
-  <link rel="stylesheet" href="/css/tasks.css" />
   <link rel="stylesheet" href="/css/mobile-nav.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .balance-card { background: linear-gradient(135deg, var(--accent), #0077aa); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 18px; }
+    .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+    .quick-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-decoration: none; color: var(--text-primary); }
+    .quick-card .qc-icon { font-size: 22px; margin-bottom: 6px; }
+    .quick-card .qc-title { font-weight: 700; font-size: 13px; }
+    .quick-card .qc-sub { font-size: 11px; color: var(--text-secondary); }
+    .progress-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 18px; }
+    .pbar { height: 10px; background: var(--bg-primary); border-radius: 6px; overflow: hidden; margin: 10px 0 6px; }
+    .pbar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #0077aa); border-radius: 6px; transition: width .6s ease; }
+  </style>
 </head>
 <body>
-  <header class="app-header flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
     <div style="font-weight:800; color:var(--accent);">YOLOTASK</div>
-    <div class="header-user"><span id="userName">Loading...</span></div>
+    <div style="font-size:13px; color:var(--text-secondary);" id="userName">Loading...</div>
   </header>
 
-  <div class="container" style="padding: 30px 20px; max-width: 1200px; margin: 0 auto;">
-    <h1 style="margin-bottom:20px;">Welcome Back</h1>
-    
-    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">
-      <div class="card">
-        <div class="stat-label" style="color:var(--text-secondary); font-size:14px;">Available Balance</div>
-        <div class="stat-value accent" style="font-size:28px; font-weight:700; color:var(--accent);" id="walletBalance">₦0.00</div>
+  <div class="container" style="padding: 25px 20px; max-width: 720px;">
+    <div class="balance-card">
+      <div style="font-size:13px; opacity:.85;">Available Balance</div>
+      <div style="font-size:34px; font-weight:800; margin:4px 0;" id="walletBalance">₦0.00</div>
+      <a href="/earner/wallet.html" style="color:#fff; font-size:13px; text-decoration:underline;">Withdraw / History →</a>
+    </div>
+
+    <!-- PROGRESS BAR CARD -->
+    <div class="progress-card" id="progressCard">
+      <div class="flex justify-between items-center">
+        <div style="font-weight:700; font-size:14px;">Rank Progress</div>
+        <span id="rankBadge" style="background:var(--accent-glow); color:var(--accent); padding:4px 12px; border-radius:14px; font-size:12px; font-weight:800;">Bronze</span>
       </div>
-      <div class="card">
-        <div class="stat-label" style="color:var(--text-secondary); font-size:14px;">Reputation Rank</div>
-        <div class="stat-value" style="font-size:28px; font-weight:700;" id="repRank">Bronze</div>
+      <div class="pbar"><div class="pbar-fill" id="pbarFill" style="width:0%;"></div></div>
+      <div class="flex justify-between" style="font-size:12px; color:var(--text-secondary);">
+        <span id="progressLabel">0 / 45 pts to Silver</span>
+        <span id="tasksDoneLabel">0 tasks done</span>
       </div>
     </div>
 
-    <div class="flex justify-between items-center" style="margin-bottom: 15px;">
-      <h2>Featured Tasks</h2>
-      <a href="/earner/tasks.html" class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;">View All</a>
+    <div class="quick-grid">
+      <a href="/earner/my-submissions.html" class="quick-card">
+        <div class="qc-icon">📋</div>
+        <div class="qc-title">My Submissions</div>
+        <div class="qc-sub">Approved / Pending / Rejected</div>
+      </a>
+      <a href="/earner/leaderboard.html" class="quick-card">
+        <div class="qc-icon">🏆</div>
+        <div class="qc-title">Leaderboard</div>
+        <div class="qc-sub">Weekly & monthly champions</div>
+      </a>
     </div>
-    
-    <div id="featuredTasks" class="task-feed" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
-      <div class="skeleton skeleton-card"></div>
+
+    <div class="flex justify-between items-center" style="margin-bottom: 12px;">
+      <h2 style="font-size:18px;">Featured Tasks</h2>
+      <a href="/earner/tasks.html" style="font-size:13px; color:var(--accent); text-decoration:none;">View All →</a>
+    </div>
+    <div id="featuredTasks" style="display:grid; grid-template-columns:1fr; gap:14px;">
       <div class="skeleton skeleton-card"></div>
     </div>
   </div>
 
-  <!-- Mobile Nav -->
   <nav class="mobile-bottom-nav">
     <a href="/earner/dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
     <a href="/earner/tasks.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
@@ -54,41 +79,68 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
+    const RANKS = [
+      { name: 'Bronze', min: 0 },
+      { name: 'Silver', min: 45 },
+      { name: 'Gold', min: 60 },
+      { name: 'Platinum', min: 75 },
+      { name: 'Diamond', min: 90 }
+    ];
+
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
       document.getElementById('userName').textContent = profile.full_name;
 
       try {
-        // Fetch Balance
-        const balRes = await apiClient.request('wallet.js', { action: 'get_balance' });
+        const [balRes, repRes, taskRes] = await Promise.all([
+          apiClient.request('wallet.js', { action: 'get_balance' }),
+          apiClient.request('tasks.js', { action: 'get_my_reputation' }),
+          apiClient.request('tasks.js', { action: 'get_feed' })
+        ]);
+
         document.getElementById('walletBalance').textContent = formatCurrency(balRes.data.wallet.available_balance);
 
-        // Fetch Tasks (Limit to 3 for dashboard)
-        const taskRes = await apiClient.request('tasks.js', { action: 'get_feed' });
-        const tasks = taskRes.data.tasks.slice(0, 3); // Take top 3
-        const feed = document.getElementById('featuredTasks');
+        // Progress bar math
+        const rep = repRes.data.reputation;
+        const score = Number(rep.reputation_score || 0);
+        const current = [...RANKS].reverse().find(r => score >= r.min) || RANKS[0];
+        const next = RANKS.find(r => r.min > score);
 
+        document.getElementById('rankBadge').textContent = current.name;
+        document.getElementById('tasksDoneLabel').textContent = `${rep.tasks_completed || 0} tasks done`;
+
+        if (next) {
+          const pct = Math.max(0, Math.min(100, ((score - current.min) / (next.min - current.min)) * 100));
+          document.getElementById('pbarFill').style.width = pct + '%';
+          document.getElementById('progressLabel').textContent = `${Math.floor(score)} / ${next.min} pts to ${next.name}`;
+        } else {
+          document.getElementById('pbarFill').style.width = '100%';
+          document.getElementById('progressLabel').textContent = `Max rank achieved — ${Math.floor(score)} pts`;
+        }
+
+        // Featured tasks
+        const tasks = (taskRes.data.tasks || []).slice(0, 3);
+        const feed = document.getElementById('featuredTasks');
         if (tasks.length === 0) {
-          feed.innerHTML = '<div style="color:var(--text-secondary);">No tasks available right now.</div>';
+          feed.innerHTML = '<div class="quick-card" style="text-align:center; color:var(--text-secondary);">No tasks available right now.</div>';
         } else {
           feed.innerHTML = tasks.map(task => `
-            <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
-              <div>
-                <span class="status-badge ${task.is_premium ? 'status-live' : 'status-draft'}" style="margin-bottom:10px; display:inline-block;">
-                  ${task.is_premium ? '★ PREMIUM' : 'GENERAL'}
-                </span>
-                <h3 style="margin-bottom:5px;">${task.title}</h3>
-                <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">${task.task_type}</p>
+            <div class="quick-card" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+              <div style="min-width:0;">
+                <div class="qc-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(task.title)}</div>
+                <div class="qc-sub">${escapeHtml(task.task_type)} • ${task.slots_left} slots</div>
               </div>
-              <div class="flex justify-between items-center">
-                <div style="font-size:18px; font-weight:700; color:var(--success);">${formatCurrency(task.reward)}</div>
-                <a href="/earner/task-details.html?id=${task.id}" class="btn btn-outline" style="padding:6px 12px; font-size:12px;">Start</a>
+              <div style="text-align:right; flex-shrink:0;">
+                <div style="font-weight:800; color:var(--success); font-size:15px;">${formatCurrency(task.reward)}</div>
+                <a href="/earner/task-details.html?id=${task.id}" style="font-size:12px; color:var(--accent); text-decoration:none;">Start →</a>
               </div>
             </div>
           `).join('');
         }
-      } catch (err) { console.error(err); }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     })();
   </script>
 </body>
