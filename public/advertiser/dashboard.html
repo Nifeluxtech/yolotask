@@ -5,72 +5,94 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Advertiser Dashboard - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/dashboard.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
-  <header class="app-header">
-    <a href="/advertiser/dashboard.html" class="header-logo">YOLOTASK <span style="font-size:12px; color:var(--text-secondary); font-weight:400;">ADVERTISER</span></a>
-    <div class="header-user">
-      <span id="userName">Loading...</span>
-      <a href="/login.html" onclick="localStorage.clear()" style="color:var(--error); text-decoration:none; margin-left:10px;">Logout</a>
-    </div>
+  <header class="flex justify-between items-center" style="padding:15px 20px;">
+    <div class="yolo-brand" style="font-size:20px;">YOLOTASK <span style="font-size:10px; color:var(--text-secondary); font-weight:600;">ADVERTISER</span></div>
+    <div style="font-weight:700; font-size:15px;">Dashboard</div>
   </header>
 
-  <div class="dashboard-container">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-      <h1>Advertiser Overview</h1>
-      <a href="/advertiser/create-campaign.html" class="btn-primary" style="width:auto; padding:10px 20px; margin:0;">+ Create Campaign</a>
+  <main class="container" style="padding:22px 20px 120px; max-width:860px;">
+    <div class="balance-card" style="background:linear-gradient(135deg, var(--accent), #4338ca); border-radius:var(--radius-lg); padding:26px; color:#fff; margin-bottom:18px;">
+      <div style="font-size:13px; opacity:.9;">Wallet Balance</div>
+      <div style="font-size:34px; font-weight:800; margin:4px 0;" id="availBalance">₦0.00</div>
+      <div style="font-size:13px; opacity:.9;">Locked in live campaigns: <strong id="lockBalance">₦0.00</strong></div>
     </div>
-    
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Active Campaigns</div>
-        <div class="stat-value accent" id="activeCampaigns">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Total Workers Reached</div>
-        <div class="stat-value" id="totalWorkers">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Wallet Balance</div>
-        <div class="stat-value" id="walletBalance">₦0</div>
+
+    <div class="stat-grid" id="statGrid">
+      <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
+      <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Quick Actions</h3>
+      <div class="quick-grid">
+        <a href="/advertiser/create-campaign.html" class="quick-card"><div class="qc-icon">➕</div><div class="qc-title">New Campaign</div></a>
+        <a href="/advertiser/submissions.html" class="quick-card"><div class="qc-icon">✅</div><div class="qc-title">Review Proofs</div></a>
+        <a href="/advertiser/campaigns.html" class="quick-card"><div class="qc-icon">📋</div><div class="qc-title">My Campaigns</div></a>
+        <a href="/advertiser/analytics.html" class="quick-card"><div class="qc-icon">📈</div><div class="qc-title">Analytics</div></a>
+        <a href="/advertiser/wallet.html" class="quick-card"><div class="qc-icon">💳</div><div class="qc-title">Fund Wallet</div></a>
+        <a href="/advertiser/profile.html" class="quick-card"><div class="qc-icon">⚙️</div><div class="qc-title">Settings</div></a>
       </div>
     </div>
 
-    <h2 style="margin:30px 0 15px;">Recent Campaigns</h2>
-    <div id="recentCampaigns" style="color:var(--text-secondary);">Loading...</div>
-  </div>
+    <div class="panel">
+      <h3>Recent Campaigns</h3>
+      <div id="recentList"><div class="skeleton skeleton-text"></div></div>
+    </div>
+  </main>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
   <script>
     (async () => {
       const profile = await checkAuthAndRedirect('advertiser');
       if (!profile) return;
-      document.getElementById('userName').textContent = profile.full_name;
-      
-      // Fetch campaigns to populate dashboard
+
       try {
-        const res = await apiClient.request('campaigns.js', { action: 'get_list' });
-        const campaigns = res.data.campaigns;
-        document.getElementById('activeCampaigns').textContent = campaigns.filter(c => c.status === 'LIVE').length;
-        document.getElementById('totalWorkers').textContent = campaigns.reduce((sum, c) => sum + c.completed_quantity, 0);
-        
-        // Render simple list
-        const list = document.getElementById('recentCampaigns');
-        if(campaigns.length === 0) list.innerHTML = 'No campaigns yet.';
-        else {
-          list.innerHTML = campaigns.slice(0, 5).map(c => `
-            <div style="background:var(--bg-secondary); padding:15px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <div style="font-weight:600;">${c.title}</div>
-                <div style="font-size:12px; color:var(--text-secondary);">${c.task_types.name} • ${c.completed_quantity}/${c.target_quantity} completed</div>
-              </div>
-              <span class="status-badge status-${c.status.toLowerCase()}">${c.status}</span>
-            </div>
-          `).join('');
-        }
-      } catch(err) { console.error(err); }
+        const [balRes, listRes, subRes] = await Promise.all([
+          apiClient.request('wallet.js', { action: 'get_balance' }),
+          apiClient.request('campaigns.js', { action: 'get_list' }),
+          apiClient.request('tasks.js', { action: 'get_submissions' })
+        ]);
+
+        const w = balRes.data.wallet;
+        const camps = listRes.data.campaigns || [];
+        const pending = subRes.data.submissions || [];
+
+        document.getElementById('availBalance').textContent = formatCurrency(w.available_balance);
+        document.getElementById('lockBalance').textContent = formatCurrency(w.locked_balance);
+
+        const live = camps.filter(c => c.status === 'LIVE').length;
+        document.getElementById('statGrid').innerHTML = `
+          <div class="stat-card"><div class="stat-lbl">Live Campaigns</div><div class="stat-val good">${live}</div></div>
+          <div class="stat-card"><div class="stat-lbl">Proofs Waiting</div><div class="stat-val warn">${pending.length}</div></div>
+          <div class="stat-card"><div class="stat-lbl">Total Campaigns</div><div class="stat-val">${camps.length}</div></div>
+        `;
+
+        const recent = camps.slice(0, 3);
+        document.getElementById('recentList').innerHTML = recent.length === 0
+          ? '<div style="color:var(--text-secondary); font-size:13px;">No campaigns yet. Create your first one!</div>'
+          : recent.map(c => {
+              const pct = c.target_quantity ? Math.round((c.completed_quantity / c.target_quantity) * 100) : 0;
+              return `
+                <div class="row-item">
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-weight:700; font-size:14px;">${escapeHtml(c.title)}</div>
+                    <div class="row-sub">${c.completed_quantity}/${c.target_quantity} workers • ${pct}% complete</div>
+                    <div style="height:6px; background:var(--bg-primary); border-radius:4px; margin-top:6px; overflow:hidden;">
+                      <div style="height:100%; width:${pct}%; background:var(--accent); border-radius:4px;"></div>
+                    </div>
+                  </div>
+                  <span class="badge ${c.status === 'LIVE' ? 'green' : c.status === 'PAUSED' ? 'amber' : c.status === 'REJECTED' ? 'red' : 'cyan'}">${c.status}</span>
+                </div>`;
+            }).join('');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     })();
   </script>
 </body>
