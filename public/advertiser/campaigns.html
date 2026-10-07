@@ -5,76 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My Campaigns - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/mobile-nav.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
-  <style>
-    .camp-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; margin-bottom: 15px; }
-    .camp-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
-    .camp-meta { font-size: 13px; color: var(--text-secondary); margin-bottom: 15px; }
-    .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    .status-draft { background: #334155; color: #cbd5e1; }
-    .status-submitted { background: #1e3a8a; color: #93c5fd; }
-    .status-live { background: #064e3b; color: #6ee7b7; }
-    .status-paused { background: #713f12; color: #fde047; }
-    .status-completed { background: #3f3f46; color: #d4d4d8; }
-    .status-rejected { background: #7f1d1d; color: #fca5a5; }
-    .status-cancelled { background: #1c1917; color: #a8a29e; }
-    
-    .action-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-    .btn-sm { padding: 6px 12px; font-size: 12px; }
-
-    /* Modal Styles */
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 2000; padding: 20px; }
-    .modal-overlay.active { display: flex; }
-    .modal-content { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 30px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
-  </style>
+  <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
-  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <div style="font-weight:800; color:var(--accent);">YOLOTASK <span style="font-size:12px; color:var(--text-secondary);">ADVERTISER</span></div>
-    <a href="/advertiser/create-campaign.html" class="btn btn-primary" style="padding: 8px 16px; font-size: 13px;">+ New</a>
+  <header class="flex justify-between items-center" style="padding:15px 20px;">
+    <div class="yolo-brand" style="font-size:20px;">YOLOTASK <span style="font-size:10px; color:var(--text-secondary); font-weight:600;">ADVERTISER</span></div>
+    <a href="/advertiser/create-campaign.html" class="btn btn-primary" style="padding:8px 16px; font-size:13px;">+ New</a>
   </header>
 
-  <div class="container" style="padding: 30px 20px; max-width: 800px;">
-    <h1 style="margin-bottom: 20px;">My Campaigns</h1>
-    <div id="campaignList">
-      <div class="skeleton skeleton-card"></div>
+  <main class="container" style="padding:22px 20px 120px; max-width:860px;">
+    <div id="campaignList"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
+  </main>
+
+  <div class="modal-overlay" id="editModal">
+    <div class="modal-box">
+      <h3 style="margin-bottom:14px;">Edit Campaign</h3>
+      <input type="hidden" id="editId" />
+      <label class="f-label">Title</label>
+      <input type="text" id="editTitle" class="f-input" />
+      <label class="f-label">Instructions</label>
+      <textarea id="editInstructions" class="f-input" style="min-height:100px;"></textarea>
+      <label class="f-label">Destination Link</label>
+      <input type="url" id="editLink" class="f-input" />
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button class="btn btn-outline" style="padding:9px 16px; font-size:13px;" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="saveEditBtn">Save Changes</button>
+      </div>
     </div>
   </div>
-
-  <!-- Edit Modal -->
-  <div id="editModal" class="modal-overlay">
-    <div class="modal-content">
-      <h2 style="margin-bottom: 20px;">Edit Campaign</h2>
-      <form id="editForm">
-        <input type="hidden" id="editId" />
-        <div style="margin-bottom: 15px;">
-          <label style="display:block; margin-bottom:8px; font-size:14px; color:var(--text-secondary);">Title</label>
-          <input type="text" id="editTitle" required />
-        </div>
-        <div style="margin-bottom: 15px;">
-          <label style="display:block; margin-bottom:8px; font-size:14px; color:var(--text-secondary);">Instructions</label>
-          <textarea id="editInstructions" required style="min-height: 100px;"></textarea>
-        </div>
-        <div style="margin-bottom: 20px;">
-          <label style="display:block; margin-bottom:8px; font-size:14px; color:var(--text-secondary);">Destination Link</label>
-          <input type="url" id="editLink" required />
-        </div>
-        <div style="display:flex; gap:10px; justify-content:flex-end;">
-          <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save Changes</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <nav class="mobile-bottom-nav">
-    <a href="/advertiser/dashboard.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
-    <a href="/advertiser/campaigns.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Campaigns</span></a>
-    <a href="/advertiser/submissions.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"></path></svg><span>Reviews</span></a>
-    <a href="/advertiser/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
-    <a href="/advertiser/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
-  </nav>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
@@ -83,92 +42,84 @@
     (async () => {
       const profile = await checkAuthAndRedirect('advertiser');
       if (!profile) return;
+      load();
+    })();
 
+    async function load() {
       try {
         const res = await apiClient.request('campaigns.js', { action: 'get_list' });
-        const list = document.getElementById('campaignList');
-        const camps = res.data.campaigns;
+        const camps = res.data.campaigns || [];
+        const box = document.getElementById('campaignList');
 
         if (camps.length === 0) {
-          list.innerHTML = '<div class="card" style="text-align:center; padding:40px; color:var(--text-secondary);">No campaigns yet. Create your first one!</div>';
+          box.innerHTML = '<div class="panel" style="text-align:center; color:var(--text-secondary); padding:40px;">No campaigns yet. Create your first one!</div>';
           return;
         }
 
-        list.innerHTML = camps.map(c => {
+        box.innerHTML = camps.map(c => {
           let actions = '';
-          
-          if (c.status === 'DRAFT') {
-            actions = `<button class="btn btn-primary btn-sm" onclick="submitCampaign('${c.id}')">Submit</button>`;
-          } else if (c.status === 'LIVE') {
-            actions = `
-              <button class="btn btn-outline btn-sm" onclick="openEdit('${c.id}', '${c.title.replace(/'/g, "\\'")}', '${c.instructions.replace(/'/g, "\\'")}', '${c.destination_link}')">Edit</button>
-              <button class="btn btn-warning btn-sm" style="background:var(--warning); color:#000;" onclick="changeStatus('${c.id}', 'PAUSED')">Pause</button>
-              <button class="btn btn-danger btn-sm" onclick="changeStatus('${c.id}', 'CANCELLED')">Cancel</button>
-            `;
-          } else if (c.status === 'PAUSED') {
-            actions = `
-              <button class="btn btn-success btn-sm" onclick="changeStatus('${c.id}', 'LIVE')">Resume</button>
-              <button class="btn btn-danger btn-sm" onclick="changeStatus('${c.id}', 'CANCELLED')">Cancel</button>
-            `;
-          } else if (c.status === 'SUBMITTED') {
-            actions = `<span style="font-size:12px; color:var(--text-secondary);">Awaiting Admin</span>`;
-          } else if (c.status === 'REJECTED' || c.status === 'CANCELLED') {
-            actions = `<span style="font-size:12px; color:var(--text-muted);">Inactive</span>`;
-          } else if (c.status === 'COMPLETED') {
-            actions = `<span style="font-size:12px; color:var(--success);">Finished</span>`;
-          }
+          if (c.status === 'DRAFT') actions = `<button class="btn btn-primary" style="padding:7px 14px; font-size:12px;" onclick="submitCamp('${c.id}')">Submit for Review</button>`;
+          else if (c.status === 'LIVE') actions = `
+            <button class="btn btn-outline" style="padding:7px 12px; font-size:12px;" onclick="openEdit('${c.id}', '${escapeHtml(c.title).replace(/'/g, "\\'")}', '${escapeHtml(c.instructions || '').replace(/'/g, "\\'")}', '${escapeHtml(c.destination_link || '')}')">Edit</button>
+            <button class="btn" style="padding:7px 12px; font-size:12px; background:var(--warning); color:#000;" onclick="changeStatus('${c.id}','PAUSED')">Pause</button>
+            <button class="btn btn-danger" style="padding:7px 12px; font-size:12px;" onclick="changeStatus('${c.id}','CANCELLED')">Cancel</button>`;
+          else if (c.status === 'PAUSED') actions = `
+            <button class="btn btn-success" style="padding:7px 14px; font-size:12px;" onclick="changeStatus('${c.id}','LIVE')">Resume</button>
+            <button class="btn btn-danger" style="padding:7px 12px; font-size:12px;" onclick="changeStatus('${c.id}','CANCELLED')">Cancel</button>`;
+          else if (c.status === 'SUBMITTED') actions = '<span class="badge cyan">Awaiting Admin</span>';
+          else if (c.status === 'COMPLETED') actions = '<span class="badge green">Finished</span>';
+          else actions = `<span class="badge ${c.status === 'REJECTED' ? 'red' : 'gray'}">${c.status}</span>`;
 
+          const pct = c.target_quantity ? Math.round((c.completed_quantity / c.target_quantity) * 100) : 0;
           return `
-            <div class="camp-card">
-              <div class="camp-header">
-                <div>
-                  <h3 style="font-size: 16px; margin-bottom: 5px;">${c.title}</h3>
-                  <div class="camp-meta">${c.task_types?.name || 'Task'} • ${c.completed_quantity}/${c.target_quantity} workers • ${formatCurrency(c.total_budget)}</div>
+            <div class="panel">
+              <div class="row-item" style="border:none; padding:0 0 10px;">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-weight:700; font-size:15px;">${escapeHtml(c.title)}</div>
+                  <div class="row-sub">${escapeHtml(c.task_types?.name || 'Task')} • ${formatCurrency(c.total_budget)} • ${c.completed_quantity}/${c.target_quantity} workers</div>
                 </div>
-                <span class="status-badge status-${c.status.toLowerCase()}">${c.status}</span>
+                <span class="badge ${c.status === 'LIVE' ? 'green' : c.status === 'PAUSED' ? 'amber' : c.status === 'REJECTED' ? 'red' : c.status === 'COMPLETED' ? 'gray' : 'cyan'}">${c.status}</span>
               </div>
-              <div class="action-btns">${actions}</div>
-            </div>
-          `;
+              <div style="height:6px; background:var(--bg-primary); border-radius:4px; margin-bottom:14px; overflow:hidden;">
+                <div style="height:100%; width:${pct}%; background:var(--accent); border-radius:4px;"></div>
+              </div>
+              <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">${actions}</div>
+            </div>`;
         }).join('');
       } catch (err) {
-        showToast('Failed to load campaigns', 'error');
+        document.getElementById('campaignList').innerHTML = `<div class="panel" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
       }
-    })();
+    }
 
-    async function submitCampaign(id) {
-      if(!confirm('Submit for review?')) return;
+    window.submitCamp = async function (id) {
+      if (!confirm('Submit this campaign for admin review?')) return;
       try {
         await apiClient.request('campaigns.js', { action: 'submit', campaignId: id });
-        showToast('Submitted!', 'success');
-        setTimeout(() => window.location.reload(), 1000);
-      } catch(e) { showToast(e.message, 'error'); }
-    }
+        showToast('Submitted for review!', 'success');
+        setTimeout(() => load(), 800);
+      } catch (e) { showToast(e.message, 'error'); }
+    };
 
-    async function changeStatus(id, status) {
-      const msg = status === 'CANCELLED' ? 'Cancel and refund remaining budget?' : `Change status to ${status}?`;
-      if(!confirm(msg)) return;
+    window.changeStatus = async function (id, status) {
+      const msg = status === 'CANCELLED' ? 'Cancel campaign and refund remaining budget to wallet?' : `Change status to ${status}?`;
+      if (!confirm(msg)) return;
       try {
         await apiClient.request('campaigns.js', { action: 'change_status', campaignId: id, newStatus: status });
-        showToast(`Campaign ${status.toLowerCase()}`, 'success');
-        setTimeout(() => window.location.reload(), 1000);
-      } catch(e) { showToast(e.message, 'error'); }
-    }
+        showToast(`Campaign ${status.toLowerCase()}.`, 'success');
+        setTimeout(() => load(), 800);
+      } catch (e) { showToast(e.message, 'error'); }
+    };
 
-    function openEdit(id, title, instructions, link) {
+    window.openEdit = function (id, title, instructions, link) {
       document.getElementById('editId').value = id;
       document.getElementById('editTitle').value = title;
       document.getElementById('editInstructions').value = instructions;
       document.getElementById('editLink').value = link;
       document.getElementById('editModal').classList.add('active');
-    }
+    };
+    window.closeModal = function () { document.getElementById('editModal').classList.remove('active'); };
 
-    function closeModal() {
-      document.getElementById('editModal').classList.remove('active');
-    }
-
-    document.getElementById('editForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    document.getElementById('saveEditBtn').addEventListener('click', async () => {
       try {
         await apiClient.request('campaigns.js', {
           action: 'update_campaign',
@@ -179,8 +130,8 @@
         });
         showToast('Campaign updated!', 'success');
         closeModal();
-        setTimeout(() => window.location.reload(), 1000);
-      } catch(e) { showToast(e.message, 'error'); }
+        setTimeout(() => load(), 800);
+      } catch (e) { showToast(e.message, 'error'); }
     });
   </script>
 </body>
