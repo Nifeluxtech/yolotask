@@ -3,7 +3,6 @@ const { supabaseAdmin } = require('../lib/supabase');
 const { getAuthenticatedUser, requireRole, getPlatformFlag } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 
-// Safe "is active" check that survives NULL / TEXT / boolean column states
 const isActive = (r) =>
   r.is_active === undefined || r.is_active === null ||
   r.is_active === true || r.is_active === 'true' || r.is_active === 't';
@@ -29,7 +28,7 @@ module.exports = async (req, res) => {
 
         const allowedRoles = ['earner', 'advertiser'];
         const finalRole = allowedRoles.includes(role) ? role : 'earner';
-        if (finalRole === 'earner' && (!interests || interests.length < 3)) {
+        if (finalRole === 'earner' && (!interests || !Array.isArray(interests) || interests.length < 3)) {
           return sendError(res, 'VALIDATION_ERROR', 'Select at least 3 interests.', 400);
         }
 
@@ -148,7 +147,7 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'All devices signed out.');
       }
 
-      // ---------- SETTINGS DATA (BULLETPROOF) ----------
+      // ---------- SETTINGS DATA (bulletproof, versioned) ----------
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
 
@@ -159,7 +158,6 @@ module.exports = async (req, res) => {
           supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle()
         ]);
 
-        // Log real errors instead of swallowing them
         if (interestsRes.error) console.error('get_settings_data interests error:', interestsRes.error);
         if (taskTypesRes.error) console.error('get_settings_data task_types error:', taskTypesRes.error);
         if (myInterestsRes.error) console.error('get_settings_data user_interests error:', myInterestsRes.error);
@@ -175,6 +173,7 @@ module.exports = async (req, res) => {
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
         return sendSuccess(res, {
+          version: 'auth-v4',
           interests,
           task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
