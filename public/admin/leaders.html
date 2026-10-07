@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leader Console - YOLOTASK Admin</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <style>
+    .admin-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 240px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    .sidebar a { color: var(--text-secondary); text-decoration: none; padding: 12px; border-radius: 8px; font-weight: 500; }
+    .sidebar a.active, .sidebar a:hover { background: var(--accent-glow); color: var(--accent); }
+    .sidebar a.logout { margin-top: auto; color: var(--error); }
+    .main { flex: 1; padding: 30px; overflow-y: auto; max-width: 900px; }
+    @media (max-width: 768px) { .sidebar { display: none; } .main { padding: 20px; } }
+    .seg { display: flex; gap: 8px; margin-bottom: 12px; }
+    .seg button { flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 10px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 13px; }
+    .seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .lb-row { display: flex; align-items: center; gap: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 10px; flex-wrap: wrap; }
+    .lb-rank { width: 34px; height: 34px; border-radius: 50%; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: var(--text-secondary); flex-shrink: 0; }
+    .lb-rank.top1 { background: linear-gradient(135deg, #fbbf24, #d97706); color: #fff; }
+    .lb-rank.top2 { background: linear-gradient(135deg, #cbd5e1, #94a3b8); color: #fff; }
+    .lb-rank.top3 { background: linear-gradient(135deg, #d97706, #92400e); color: #fff; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
+    .modal-overlay.active { display: flex; }
+    .modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 26px; width: 100%; max-width: 420px; }
+    .m-input { width: 100%; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <div class="admin-layout">
+    <aside class="sidebar">
+      <div style="font-size:20px; font-weight:800; color:var(--accent); margin-bottom:30px; padding: 0 10px;">
+        YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span>
+      </div>
+      <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/leaders.html" class="active">🏆 Leader Console</a>
+      <a href="/admin/campaigns.html">📝 Campaign Reviews</a>
+      <a href="/admin/withdrawals.html">💸 Withdrawals</a>
+      <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/settings.html">⚙️ Platform Settings</a>
+      <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
+    </aside>
+
+    <main class="main">
+      <h1 style="margin-bottom:6px;">Leader Console</h1>
+      <p style="color:var(--text-secondary); font-size:14px; margin-bottom:20px;">Reward your weekly & monthly champions. Every reward is logged in the audit trail.</p>
+
+      <div class="seg" id="periodSeg">
+        <button class="active" data-v="week">This Week</button>
+        <button data-v="month">This Month</button>
+      </div>
+      <div class="seg" id="kindSeg">
+        <button class="active" data-v="tasks">🏆 Top Workers</button>
+        <button data-v="referrals">🤝 Top Referrers</button>
+      </div>
+
+      <div id="lbList"><div class="skeleton skeleton-card"></div></div>
+
+      <h2 style="font-size:17px; margin:28px 0 12px;">Reward Audit Trail</h2>
+      <div id="auditList"><div class="skeleton skeleton-card"></div></div>
+    </main>
+  </div>
+
+  <!-- Reward Modal -->
+  <div class="modal-overlay" id="rewardModal">
+    <div class="modal-box">
+      <h3 style="margin-bottom:6px;">Send Reward</h3>
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">To: <strong id="rwName" style="color:var(--text-primary);"></strong></p>
+      <label style="display:block; font-size:13px; color:var(--text-secondary); margin-bottom:6px;">Amount (₦)</label>
+      <input type="number" id="rwAmount" class="m-input" min="1" max="100000" placeholder="e.g. 2000" />
+      <label style="display:block; font-size:13px; color:var(--text-secondary); margin-bottom:6px;">Note (shown to user)</label>
+      <input type="text" id="rwNote" class="m-input" maxlength="140" placeholder="e.g. #1 Worker of the Week" />
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button class="btn btn-outline" style="padding:9px 16px; font-size:13px;" onclick="closeReward()">Cancel</button>
+        <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="rwSendBtn">Send Reward</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    let period = 'week';
+    let kind = 'tasks';
+    let currentLeaders = [];
+    let rewardTarget = null;
+
+    (async () => {
+      const profile = await checkAuthAndRedirect('admin');
+      if (!profile) return;
+      loadLeaders();
+      loadAudit();
+    })();
+
+    document.getElementById('periodSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      document.querySelectorAll('#periodSeg button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active'); period = btn.dataset.v; loadLeaders();
+    });
+    document.getElementById('kindSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      document.querySelectorAll('#kindSeg button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active'); kind = btn.dataset.v; loadLeaders();
+    });
+
+    async function loadLeaders() {
+      const list = document.getElementById('lbList');
+      list.innerHTML = '<div class="skeleton skeleton-card"></div>';
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_leaderboard', period, kind });
+        currentLeaders = res.data.leaders || [];
+
+        if (currentLeaders.length === 0) {
+          list.innerHTML = '<div class="lb-row" style="justify-content:center; color:var(--text-secondary);">No activity this period yet.</div>';
+          return;
+        }
+
+        list.innerHTML = currentLeaders.map((l, i) => {
+          const rankClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+          return `
+            <div class="lb-row">
+              <div class="lb-rank ${rankClass}">${medal}</div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:14px;">${escapeHtml(l.full_name || 'Anonymous')}</div>
+                <div style="font-size:12px; color:var(--text-secondary);">
+                  ${kind === 'tasks' ? `${l.metric} tasks approved` : `${l.metric} referrals`} • earned ${formatCurrency(l.total_reward)}
+                </div>
+              </div>
+              <button class="btn btn-success" style="padding:8px 14px; font-size:12px;" onclick="openReward('${l.user_id}', '${escapeHtml(l.full_name || '').replace(/'/g, "\\'")}')">🎁 Reward</button>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        list.innerHTML = `<div class="lb-row" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function loadAudit() {
+      const box = document.getElementById('auditList');
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_reward_history' });
+        const rewards = res.data.rewards || [];
+
+        if (rewards.length === 0) {
+          box.innerHTML = '<div class="lb-row" style="justify-content:center; color:var(--text-secondary);">No rewards sent yet.</div>';
+          return;
+        }
+
+        box.innerHTML = rewards.map(r => `
+          <div class="lb-row">
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:700; font-size:14px;">${escapeHtml(r.user_name)} <span style="color:var(--success);">+${formatCurrency(r.amount)}</span></div>
+              <div style="font-size:12px; color:var(--text-secondary);">${escapeHtml(r.note)}${r.period_label ? ` • ${escapeHtml(r.period_label)}` : ''} • ${formatDate(r.created_at)}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        box.innerHTML = `<div class="lb-row" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    window.openReward = function (userId, name) {
+      rewardTarget = userId;
+      document.getElementById('rwName').textContent = name;
+      document.getElementById('rwAmount').value = '';
+      document.getElementById('rwNote').value = kind === 'tasks' ? `#${''}1 Worker — ${period === 'week' ? 'This Week' : 'This Month'}` : `Top Referrer — ${period === 'week' ? 'This Week' : 'This Month'}`;
+      document.getElementById('rewardModal').classList.add('active');
+    };
+
+    window.closeReward = function () {
+      document.getElementById('rewardModal').classList.remove('active');
+      rewardTarget = null;
+    };
+
+    document.getElementById('rwSendBtn').addEventListener('click', async () => {
+      if (!rewardTarget) return;
+      const btn = document.getElementById('rwSendBtn');
+      btn.disabled = true; btn.textContent = 'Sending...';
+
+      try {
+        const res = await apiClient.request('admin.js', {
+          action: 'reward_leader',
+          userId: rewardTarget,
+          amount: Number(document.getElementById('rwAmount').value),
+          note: document.getElementById('rwNote').value,
+          period: `${kind}-${period}`
+        });
+        showToast(res.message || 'Reward sent!', 'success');
+        closeReward();
+        loadAudit();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+      btn.disabled = false; btn.textContent = 'Send Reward';
+    });
+  </script>
+</body>
+  </html>
