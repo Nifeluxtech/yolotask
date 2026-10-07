@@ -26,10 +26,22 @@
     <main class="admin-main">
       <header class="admin-header">
         <div class="page-title">Platform Settings</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:13px; color:var(--text-secondary);" id="adminName"></span>
+          <button class="btn btn-danger" style="padding:7px 14px; font-size:12px;" id="headerLogoutBtn">Logout</button>
+        </div>
       </header>
+
       <p style="font-size:13px; color:var(--text-secondary); margin-bottom:18px;">Changes go live immediately across the entire platform.</p>
 
       <div id="settingsArea"><div class="panel">Loading settings...</div></div>
+
+      <!-- SESSION PANEL -->
+      <div class="panel" style="border-color: var(--error);">
+        <h3 style="color:var(--error);">Session</h3>
+        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">Sign out of this admin session on this device.</p>
+        <button class="btn btn-danger w-full" id="sessionLogoutBtn">🚪 Logout of Admin</button>
+      </div>
     </main>
   </div>
 
@@ -37,9 +49,19 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
+    function adminLogout() {
+      if (!confirm('Logout of the admin panel?')) return;
+      localStorage.clear();
+      window.location.href = '/login.html';
+    }
+
+    document.getElementById('headerLogoutBtn').addEventListener('click', adminLogout);
+    document.getElementById('sessionLogoutBtn').addEventListener('click', adminLogout);
+
     (async () => {
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
+      document.getElementById('adminName').textContent = profile.full_name;
 
       try {
         const res = await apiClient.request('admin.js', { action: 'get_platform_settings' });
@@ -76,7 +98,7 @@
             <input type="number" id="referral_reward_advertiser_pct" class="f-input" min="0" max="1" step="0.01" value="${s.referral_reward_advertiser_pct ?? 0.05}" />
           </div>
 
-          <button class="btn btn-primary w-full" id="saveBtn">Save All Settings</button>
+          <button class="btn btn-primary w-full" id="saveBtn" style="margin-bottom:18px;">Save All Settings</button>
         `;
 
         document.getElementById('saveBtn').addEventListener('click', async () => {
