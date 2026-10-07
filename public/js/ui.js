@@ -1,7 +1,7 @@
 // /public/js/ui.js
 // Core UI helpers + PWA bootstrap (service worker, install banner, push notifications)
 
-const ONESIGNAL_APP_ID = '01a38103-d17e-4257-9af4-558b6500ed44'; // <-- PASTE YOUR ONESIGNAL APP ID HERE (leave empty to disable push)
+const ONESIGNAL_APP_ID = '01a38103-d17e-4257-9af4-558b6500ed44'; // Your live OneSignal App ID
 
 // ---------- CORE HELPERS ----------
 function escapeHtml(str) {
@@ -41,7 +41,7 @@ function showToast(message, type = 'success') {
   const c = colors[type] || colors.success;
 
   const toast = document.createElement('div');
-  toast.style.cssText = `background:${c.bg}; border:1px solid ${c.border}; border-left:5px solid ${c.border}; color:#fff; padding:14px 18px; border-radius:10px; font-size:14px; display:flex; gap:10px; align-items:flex-start; box-shadow:0 8px 24px rgba(0,0,0,0.4); animation:toastIn .25s ease;`;
+  toast.style.cssText = `background:${c.bg}; border:1px solid ${c.border}; border-left:5px solid ${c.border}; color:#fff; padding:14px 18px; border-radius:10px; font-size:14px; display:flex; gap:10px; align-items:flex-start; box-shadow:0 8px 24px rgba(0,0,0,0.4);`;
   toast.innerHTML = `<span style="font-weight:800;">${c.icon}</span><span>${escapeHtml(message)}</span>`;
   container.appendChild(toast);
 
@@ -131,7 +131,7 @@ function showInstallBanner() {
 
 // ---------- PUSH NOTIFICATIONS (OneSignal) ----------
 (function initPush() {
-  if (!ONESIGNAL_APP_ID) return; // push disabled until App ID is set
+  if (!ONESIGNAL_APP_ID) return;
 
   window.OneSignal = window.OneSignal || [];
   OneSignal.push(['init', {
@@ -146,7 +146,7 @@ function showInstallBanner() {
   s.defer = true;
   document.head.appendChild(s);
 
-  // Tag logged-in user so the server can target pushes
+  // Tag logged-in user so the server can target pushes to them
   const tagUser = () => {
     try {
       const cached = JSON.parse(localStorage.getItem('yolotask_user') || 'null');
@@ -159,7 +159,7 @@ function showInstallBanner() {
   };
   window.addEventListener('load', () => setTimeout(tagUser, 2000));
 
-  // Permission banner (only when logged in + permission not decided)
+  // Permission banner (logged in + permission undecided + not dismissed)
   window.addEventListener('load', () => {
     setTimeout(() => {
       const loggedIn = !!localStorage.getItem('yolotask_user');
