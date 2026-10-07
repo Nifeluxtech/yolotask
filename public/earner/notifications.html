@@ -2,88 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Notifications - YOLOTASK</title>
+  <meta http-equiv="refresh" content="0; url=/notifications.html" />
+  <title>Redirecting… - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/ui-components.css" />
-  <style>
-    .notif-row { display: flex; gap: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 10px; position: relative; }
-    .notif-row.unread { border-color: var(--accent); background: var(--accent-glow); }
-    .notif-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--bg-primary); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
-    .unread-dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-  </style>
 </head>
 <body>
-  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <a href="/earner/dashboard.html" style="color:var(--accent); text-decoration:none; font-weight:600;">← Back</a>
-    <button id="markAllBtn" class="btn btn-outline" style="padding:6px 14px; font-size:12px;">Mark all read</button>
-  </header>
-
-  <div class="container" style="padding: 22px 20px; max-width: 720px;">
-    <h1 style="font-size:22px; margin-bottom:14px;">Notifications</h1>
-    <div id="notifList"><div class="skeleton skeleton-card"></div></div>
-  </div>
-
-  <script src="/js/api.js"></script>
-  <script src="/js/auth.js"></script>
-  <script src="/js/ui.js"></script>
-  <script>
-    const ICONS = {
-      TASK: '📋', WALLET: '💰', CAMPAIGN: '📣', ANNOUNCEMENT: '📢',
-      LOW_BALANCE: '⚠️', REFERRAL: '🤝', GENERAL: '🔔'
-    };
-
-    function timeAgo(d) {
-      const s = (Date.now() - new Date(d)) / 1000;
-      if (s < 60) return 'just now';
-      const m = s / 60; if (m < 60) return Math.floor(m) + 'm ago';
-      const h = m / 60; if (h < 24) return Math.floor(h) + 'h ago';
-      const dd = h / 24; if (dd < 7) return Math.floor(dd) + 'd ago';
-      return formatDate(d);
-    }
-
-    (async () => {
-      const profile = await checkAuthAndRedirect('earner');
-      if (!profile) return;
-      load();
-    })();
-
-    async function load() {
-      try {
-        const res = await apiClient.request('auth.js', { action: 'get_notifications' });
-        const list = res.data.notifications || [];
-        const box = document.getElementById('notifList');
-
-        if (list.length === 0) {
-          box.innerHTML = '<div class="notif-row" style="justify-content:center; color:var(--text-secondary); padding:40px; text-align:center;">No notifications yet.<br/>Task approvals and payouts will appear here.</div>';
-          return;
-        }
-
-        box.innerHTML = list.map(n => `
-          <div class="notif-row ${n.is_read ? '' : 'unread'}">
-            <div class="notif-icon">${ICONS[n.type] || ICONS.GENERAL}</div>
-            <div style="flex:1; min-width:0;">
-              <div style="font-weight:700; font-size:14px; margin-bottom:3px;">${escapeHtml(n.title)}</div>
-              <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">${escapeHtml(n.message)}</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">${timeAgo(n.created_at)}</div>
-            </div>
-            ${n.is_read ? '' : '<div class="unread-dot"></div>'}
-          </div>
-        `).join('');
-      } catch (err) {
-        document.getElementById('notifList').innerHTML = `<div class="notif-row" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
-      }
-    }
-
-    document.getElementById('markAllBtn').addEventListener('click', async () => {
-      try {
-        await apiClient.request('auth.js', { action: 'mark_notifications_read' });
-        showToast('All notifications marked as read.', 'success');
-        load();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-  </script>
+  <p style="text-align:center; padding:40px; color:var(--text-secondary);">
+    Moving to your notifications… <a href="/notifications.html" style="color:var(--accent);">Tap here</a>
+  </p>
+  <script>window.location.replace('/notifications.html');</script>
 </body>
 </html>
