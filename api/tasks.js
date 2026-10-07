@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
     }
 
     switch (action) {
-      // --- EARNER ---
+      // --- EARNER: FEED & DETAILS ---
       case 'get_feed': {
         requireRole(profile, ['earner']);
         const feed = await getTaskFeed(profile.id, profile);
@@ -45,6 +45,82 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Submitted for review.');
       }
 
+      // --- EARNER: MY SUBMISSION HISTORY ---
+      case 'get_my_submissions': {
+        requireRole(profile, ['earner']);
+        const { data: subs, error } = await supabaseAdmin
+          .from('task_submissions')
+          .select('id, campaign_id, proof_url, status, created_at, reviewed_at')
+          .eq('earner_id', profile.id)
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (error) throw error;
+        if (!subs || subs.length === 0) return sendSuccess(res, { submissions: [] });
+
+        const campIds = [...new Set(subs.map(s => s.campaign_id))];
+        const { data: camps } = await supabaseAdmin
+          .from('campaigns')
+          .select('id, title, is_targeted, task_type_id')
+          .in('id', campIds);
+
+        const typeIds = [...new Set((camps || []).map(c => c.task_type_id))];
+        const { data: types } = await supabaseAdmin
+          .from('task_types')
+          .select('id, name, base_earner_reward, premium_earner_reward')
+          .in('id', typeIds);
+
+        const campMap = new Map((camps || []).map(c => [c.id, c]));
+        const typeMap = new Map((types || []).map(t => [t.id, t]));
+
+        const enriched = subs.map(s => {
+          const camp = campMap.get(s.campaign_id);
+          const type = camp ? typeMap.get(camp.task_type_id) : null;
+          const reward = camp && type
+            ? Number(camp.is_targeted ? type.premium_earner_reward : type.base_earner_reward)
+            : 0;
+          return {
+            ...s,
+            campaign_title: camp?.title || 'Unknown Campaign',
+            task_type: type?.name || 'Task',
+            reward
+          };
+        });
+
+        return sendSuccess(res, { submissions: enriched });
+      }
+
+      // --- EARNER: REPUTATION / PROGRESS ---
+      case 'get_my_reputation': {
+        requireRole(profile, ['earner']);
+        const { data } = await supabaseAdmin
+          .from('earner_reputation')
+          .select('*')
+          .eq('user_id', profile.id)
+          .maybeSingle();
+
+        const rep = data || {
+          tasks_completed: 0, tasks_rejected: 0,
+          rejection_rate: 0, reputation_score: 0, rank: 'Bronze'
+        };
+        return sendSuccess(res, { reputation: rep });
+      }
+
+      // --- LEADERBOARD (week/month × tasks/referrals) ---
+      case 'get_leaderboard': {
+        requireRole(profile, ['earner', 'admin', 'reviewer']);
+        const period = req.body.period === 'month' ? 'month' : 'week';
+        const kind = req.body.kind === 'referrals' ? 'referrals' : 'tasks';
+
+        const { data, error } = await supabaseAdmin.rpc('get_leaderboard', {
+          p_kind: kind,
+          p_period: period
+        });
+
+        if (error) throw error;
+        return sendSuccess(res, { leaders: data || [], period, kind });
+      }
+
       // --- ADVERTISER ---
       case 'get_submissions': {
         requireRole(profile, ['advertiser']);
@@ -63,7 +139,7 @@ module.exports = async (req, res) => {
           const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
           if (sub) {
             const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', sub.campaign_id).single();
-            const msg = reviewAction === 'APPROVED' ? `Your submission for "${camp?.title || 'a task'}" was approved.` : `Your submission was rejected.`;
+            const msg = reviewAction === 'APPROVED' ? `Your submission for "${camp?.title || 'a task'}" was approved.` : 'Your submission was rejected.';
             await sendNotification(sub.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
           }
         } catch (notifErr) { console.error('Notification error:', notifErr); }
@@ -91,7 +167,7 @@ module.exports = async (req, res) => {
         const advertiserIds = campaigns ? [...new Set(campaigns.map(c => c.advertiser_id))] : [];
         const { data: advertisers } = await supabaseAdmin
           .from('profiles')
-          .select('id, full_name, business_name') // Business name now visible to reviewers
+          .select('id, full_name, business_name')
           .in('id', advertiserIds);
 
         const campMap = new Map(campaigns?.map(c => [c.id, c]) || []);
@@ -127,7 +203,7 @@ module.exports = async (req, res) => {
           const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
           if (sub) {
             const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', sub.campaign_id).single();
-            const msg = reviewAction === 'APPROVED' ? `Your task "${camp?.title || 'submission'}" was approved by our review team.` : `Your task was rejected by our review team.`;
+            const msg = reviewAction === 'APPROVED' ? `Your task "${camp?.title || 'submission'}" was approved by our review team.` : 'Your task was rejected by our review team.';
             await sendNotification(sub.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
           }
         } catch (notifErr) { console.error('Notification error:', notifErr); }
