@@ -3,69 +3,34 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Manage Users - YOLOTASK Admin</title>
+  <title>Users - YOLOTASK Admin</title>
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
-  <style>
-    .admin-layout { display: flex; min-height: 100vh; }
-    .sidebar { width: 240px; background: var(--bg-secondary); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
-    .sidebar a { color: var(--text-secondary); text-decoration: none; padding: 12px; border-radius: 8px; font-weight: 500; transition: all 0.2s; }
-    .sidebar a.active, .sidebar a:hover { background: var(--accent-glow); color: var(--accent); }
-    .sidebar a.logout { margin-top: auto; color: var(--error); }
-    
-    .main { flex: 1; padding: 30px; overflow-x: auto; }
-    
-    @media (max-width: 768px) { 
-      .sidebar { display: none; } 
-      .main { padding: 20px; } 
-    }
-
-    .table-container { 
-      background: var(--bg-secondary); border: 1px solid var(--border); 
-      border-radius: var(--radius-lg); overflow: hidden; 
-    }
-    
-    table { width: 100%; border-collapse: collapse; min-width: 600px; }
-    th, td { padding: 15px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
-    th { background: var(--bg-primary); color: var(--text-secondary); font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
-    tr:last-child td { border-bottom: none; }
-    tr:hover { background: var(--bg-tertiary); }
-
-    .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; display: inline-block; }
-    .status-active { background: var(--success-bg); color: var(--success); }
-    .status-suspended { background: var(--error-bg); color: var(--error); }
-    .role-badge { background: var(--accent-glow); color: var(--accent); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
-  </style>
+  <link rel="stylesheet" href="/css/admin.css" />
 </head>
 <body>
   <div class="admin-layout">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div style="font-size:20px; font-weight:800; color:var(--accent); margin-bottom:30px; padding: 0 10px;">
-        YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span>
-      </div>
+    <aside class="admin-sidebar">
+      <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html">📊 Dashboard</a>
-      <a href="/admin/campaigns.html">📝 Campaign Reviews</a>
+      <a href="/admin/leaders.html">🏆 Leader Console</a>
+      <a href="/admin/campaigns.html">📝 Campaigns</a>
+      <a href="/admin/escalated.html">⚠️ Escalated</a>
       <a href="/admin/withdrawals.html">💸 Withdrawals</a>
       <a href="/admin/users.html" class="active">👥 Users</a>
       <a href="/admin/announcements.html">📢 Announcements</a>
+      <a href="/admin/settings.html">⚙️ Settings</a>
       <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
     </aside>
 
-    <!-- Main Content -->
-    <main class="main">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px;">
-        <div>
-          <h1 style="margin-bottom: 5px;">User Management</h1>
-          <p style="color:var(--text-secondary); font-size:14px;">Manage platform users, roles, and security.</p>
-        </div>
-      </div>
+    <main class="admin-main">
+      <header class="admin-header">
+        <div class="page-title">User Management</div>
+        <span class="badge cyan" id="countBadge">0</span>
+      </header>
 
-      <div class="table-container" id="usersTableContainer">
-        <div style="padding: 40px; text-align: center;">
-          <div class="skeleton skeleton-text" style="width: 100%; margin-bottom: 10px;"></div>
-          <div class="skeleton skeleton-text" style="width: 80%;"></div>
-        </div>
+      <div class="panel">
+        <div class="table-wrap" id="tableWrap"><div class="skeleton skeleton-card"></div></div>
       </div>
     </main>
   </div>
@@ -77,44 +42,28 @@
     (async () => {
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
+      load();
+    })();
 
+    async function load() {
       try {
         const res = await apiClient.request('admin.js', { action: 'get_users' });
-        const users = res.data.users;
-        const container = document.getElementById('usersTableContainer');
+        const users = res.data.users || [];
+        document.getElementById('countBadge').textContent = users.length + ' users';
 
-        if (users.length === 0) {
-          container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-secondary);">No users found.</div>';
-          return;
-        }
-
-        container.innerHTML = `
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Joined</th>
-                <th style="text-align:right;">Actions</th>
-              </tr>
-            </thead>
+        document.getElementById('tableWrap').innerHTML = `
+          <table class="admin-table">
+            <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Joined</th><th style="text-align:right;">Action</th></tr></thead>
             <tbody>
               ${users.map(u => `
                 <tr>
-                  <td style="font-weight:600;">${u.full_name || 'Unknown User'}</td>
-                  <td><span class="role-badge">${u.role}</span></td>
-                  <td>
-                    <span class="status-badge ${u.is_suspended ? 'status-suspended' : 'status-active'}">
-                      ${u.is_suspended ? 'Suspended' : 'Active'}
-                    </span>
-                  </td>
-                  <td style="color:var(--text-secondary); font-size:13px;">${formatDate(u.created_at)}</td>
+                  <td style="font-weight:600;">${escapeHtml(u.full_name || 'Unknown')}</td>
+                  <td><span class="badge cyan">${u.role}</span></td>
+                  <td><span class="badge ${u.is_suspended ? 'red' : 'green'}">${u.is_suspended ? 'Suspended' : 'Active'}</span></td>
+                  <td style="color:var(--text-secondary); font-size:12px;">${formatDate(u.created_at)}</td>
                   <td style="text-align:right;">
-                    <button 
-                      class="btn ${u.is_suspended ? 'btn-success' : 'btn-danger'}" 
-                      style="padding:6px 12px; font-size:12px;"
-                      onclick="toggleUserStatus('${u.id}', ${!u.is_suspended})">
+                    <button class="btn ${u.is_suspended ? 'btn-success' : 'btn-danger'}" style="padding:6px 12px; font-size:11px;"
+                      onclick="toggle('${u.id}', ${!u.is_suspended})">
                       ${u.is_suspended ? 'Unsuspend' : 'Suspend'}
                     </button>
                   </td>
@@ -124,30 +73,18 @@
           </table>
         `;
       } catch (err) {
-        console.error('USER LOAD ERROR:', err);
-        document.getElementById('usersTableContainer').innerHTML = `
-          <div style="padding:40px; text-align:center; color:var(--error);">
-            Failed to load users: ${err.message}
-          </div>`;
-      }
-    })();
-
-    async function toggleUserStatus(userId, shouldSuspend) {
-      const actionText = shouldSuspend ? 'suspend' : 'unsuspend';
-      if (!confirm(`Are you sure you want to ${actionText} this user? They will be immediately blocked from accessing the platform.`)) return;
-
-      try {
-        await apiClient.request('admin.js', { 
-          action: 'update_user_status', 
-          userId: userId, 
-          isSuspended: shouldSuspend 
-        });
-        showToast(`User ${actionText}ed successfully.`, 'success');
-        setTimeout(() => window.location.reload(), 1000);
-      } catch (err) {
-        showToast(err.message, 'error');
+        document.getElementById('tableWrap').innerHTML = `<div style="color:var(--error); padding:20px;">${escapeHtml(err.message)}</div>`;
       }
     }
+
+    window.toggle = async function (userId, shouldSuspend) {
+      if (!confirm(shouldSuspend ? 'Suspend this user? They will be locked out immediately.' : 'Restore this user access?')) return;
+      try {
+        await apiClient.request('admin.js', { action: 'update_user_status', userId, isSuspended: shouldSuspend });
+        showToast(`User ${shouldSuspend ? 'suspended' : 'restored'}.`, 'success');
+        load();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
   </script>
 </body>
 </html>
