@@ -7,6 +7,10 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .proof-img { width: 110px; height: 110px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); cursor: pointer; background: var(--bg-primary); }
+    .comment-box { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--text-secondary); margin-top: 10px; white-space: pre-wrap; }
+  </style>
 </head>
 <body>
   <header class="flex justify-between items-center" style="padding:15px 20px;">
@@ -14,9 +18,9 @@
     <div style="font-weight:700; font-size:15px;">Review Proofs</div>
   </header>
 
-  <main class="container" style="padding:22px 20px 120px; max-width:860px;">
+  <main class="container" style="padding:22px 18px 120px; max-width:860px;">
     <div class="panel" style="border-color:var(--warning); background:var(--warning-bg); color:var(--warning); font-size:13px; margin-bottom:18px;">
-      ⚠️ Pending proofs auto-approve (or escalate) after your approval window. Review promptly to protect your budget.
+      ⚠️ Proof images are deleted automatically once you approve or reject.
     </div>
     <div id="subList"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
   </main>
@@ -51,11 +55,14 @@
               </div>
               <span class="badge amber">PENDING</span>
             </div>
-            <div style="background:var(--bg-primary); padding:12px; border-radius:10px; margin-bottom:14px; word-break:break-all;">
-              <div style="font-size:11px; color:var(--text-secondary); margin-bottom:4px;">PROOF LINK</div>
-              <a href="${escapeHtml(s.proof_url)}" target="_blank" style="color:var(--accent); text-decoration:none; font-size:13px;">${escapeHtml(s.proof_url)}</a>
+            <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+              ${s.proof_url ? `<a href="${escapeHtml(s.proof_url)}" target="_blank"><img class="proof-img" src="${escapeHtml(s.proof_url)}" alt="proof" /></a>` : '<div style="font-size:12px; color:var(--text-secondary);">No image</div>'}
+              <div style="flex:1; min-width:200px;">
+                <div style="font-size:12px; color:var(--text-secondary); margin-bottom:4px;">Tap image to view full size</div>
+                ${s.comment ? `<div class="comment-box"><strong style="color:var(--text-primary);">Worker's note:</strong><br/>${escapeHtml(s.comment)}</div>` : ''}
+              </div>
             </div>
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
               <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="review('${s.id}','REJECTED',this)">Reject</button>
               <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="review('${s.id}','APPROVED',this)">Approve & Pay</button>
             </div>
@@ -74,7 +81,7 @@
       btn.disabled = true; btn.textContent = 'Processing...';
       try {
         await apiClient.request('tasks.js', { action: 'review_submission', submissionId, reviewAction });
-        showToast(`Task ${reviewAction.toLowerCase()}.`, 'success');
+        showToast(`Task ${reviewAction.toLowerCase()}. Proof image deleted.`, 'success');
         document.getElementById(`sub-${submissionId}`)?.remove();
       } catch (err) {
         showToast(err.message, 'error');
