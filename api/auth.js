@@ -7,7 +7,6 @@ const isActive = (r) =>
   r.is_active === undefined || r.is_active === null ||
   r.is_active === true || r.is_active === 'true' || r.is_active === 't';
 
-// Run a Supabase query, retry once after 400ms on error
 async function q(fn) {
   const first = await fn();
   if (!first.error) return first;
@@ -26,6 +25,31 @@ module.exports = async (req, res) => {
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
     switch (action) {
+      // ---------- PUBLIC (no auth) ----------
+      case 'get_public_data': {
+        const [earners, advertisers, live, paid, interests] = await Promise.all([
+          supabaseAdmin.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'earner'),
+          supabaseAdmin.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'advertiser'),
+          supabaseAdmin.from('campaigns').select('id', { count: 'exact', head: true }).eq('status', 'LIVE'),
+          supabaseAdmin.from('wallet_ledger').select('amount')
+            .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER'])
+            .limit(10000),
+          supabaseAdmin.from('interests').select('id, name').order('name').limit(24)
+        ]);
+
+        const totalPaid = (paid.data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+
+        return sendSuccess(res, {
+          stats: {
+            earners: earners.count || 0,
+            advertisers: advertisers.count || 0,
+            live_campaigns: live.count || 0,
+            total_paid: totalPaid
+          },
+          interests: (interests.data || []).filter(isActive)
+        });
+      }
+
       case 'register': {
         const open = await getPlatformFlag('registrations_open');
         if (open === false || open === 'false') {
@@ -81,6 +105,7 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Reset link sent.');
       }
 
+      // ---------- AUTHENTICATED ----------
       case 'get-session': {
         const { user, profile } = await getAuthenticatedUser(req);
         return sendSuccess(res, {
@@ -126,8 +151,6 @@ module.exports = async (req, res) => {
         if (buffer.length > 500 * 1024) return sendError(res, 'FILE_TOO_LARGE', 'Image must be under 500KB.', 400);
 
         const path = `${profile.id}.jpg`;
-
-        // Retry once on storage flakiness
         let up = await supabaseAdmin.storage.from('avatars').upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
         if (up.error) {
           await new Promise(r => setTimeout(r, 500));
@@ -140,7 +163,6 @@ module.exports = async (req, res) => {
 
         const { data: pub } = supabaseAdmin.storage.from('avatars').getPublicUrl(path);
         const publicUrl = `${pub.publicUrl}?t=${Date.now()}`;
-
         const { error: dbErr } = await q(() => supabaseAdmin.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id));
         if (dbErr) throw dbErr;
 
@@ -169,7 +191,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'All devices signed out.');
       }
 
-      // ---------- SETTINGS DATA (retry + LOUD errors) ----------
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
 
@@ -180,24 +201,21 @@ module.exports = async (req, res) => {
           q(() => supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle())
         ]);
 
-        // FAIL LOUDLY instead of pretending the platform has no data
         if (interestsRes.error || taskTypesRes.error) {
           const msg = (interestsRes.error && interestsRes.error.message) || (taskTypesRes.error && taskTypesRes.error.message) || 'Unknown DB error';
           return sendError(res, 'SETTINGS_LOAD_FAILED', 'Database temporarily unavailable: ' + msg, 502);
         }
 
-        const interests = (interestsRes.data || [])
-          .filter(isActive)
+        const interests = (interestsRes.data || []).filter(isActive)
           .map(i => ({ id: i.id, name: i.name, category: i.category }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
-        const task_types = (taskTypesRes.data || [])
-          .filter(isActive)
+        const task_types = (taskTypesRes.data || []).filter(isActive)
           .map(t => ({ id: t.id, name: t.name }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
         return sendSuccess(res, {
-          version: 'auth-v5',
+          version: 'auth-v6',
           interests,
           task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
