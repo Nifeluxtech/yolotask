@@ -16,23 +16,27 @@
     .sb-APPROVED { background: var(--success-bg); color: var(--success); }
     .sb-REJECTED { background: var(--error-bg); color: var(--error); }
     .sb-UNDER_REVIEW { background: var(--accent-glow); color: var(--accent); }
+    .upload-zone { border: 2px dashed var(--border); border-radius: 14px; padding: 22px; text-align: center; cursor: pointer; transition: .15s; margin: 10px 0 14px; }
+    .upload-zone:hover { border-color: var(--accent); background: var(--accent-glow); }
+    .upload-zone img { max-width: 120px; max-height: 120px; border-radius: 10px; margin-top: 10px; }
   </style>
 </head>
 <body>
-  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+  <header class="flex justify-between items-center" style="padding:15px 20px;">
     <a href="/earner/tasks.html" style="color:var(--accent); text-decoration:none; font-weight:600;">← Tasks</a>
-    <div style="font-weight:800; color:var(--accent);">Task Details</div>
+    <div style="font-weight:700; font-size:15px;">Task Details</div>
   </header>
 
-  <div class="container" style="padding: 22px 20px; max-width: 720px;">
+  <main class="container" style="padding:22px 18px 120px; max-width:760px;">
     <div id="content"><div class="skeleton skeleton-card"></div></div>
-  </div>
+  </main>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
     let taskId = null;
+    let proofDataUrl = null;
 
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
@@ -40,7 +44,6 @@
 
       taskId = new URLSearchParams(window.location.search).get('id');
       const box = document.getElementById('content');
-
       if (!taskId) { window.location.href = '/earner/tasks.html'; return; }
 
       try {
@@ -60,35 +63,32 @@
               <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
                 You submitted this task on ${formatDate(existing.created_at)}.
                 ${existing.status === 'PENDING_REVIEW' ? 'The advertiser/review team is checking your proof.' : ''}
-                ${existing.status === 'REJECTED' ? 'Unfortunately your proof was not accepted.' : ''}
                 ${existing.status === 'APPROVED' ? 'Reward has been credited to your wallet. 🎉' : ''}
               </p>
               <a href="/earner/my-submissions.html" class="btn btn-outline" style="padding:10px 18px; font-size:13px;">View All My Submissions</a>
-            </div>
-          `;
+            </div>`;
         }
 
         box.innerHTML = `
           <div class="detail-card">
             <div class="flex justify-between items-center" style="gap:10px; flex-wrap:wrap;">
-              <span class="${task.is_premium ? 'prem' : 'gen'}" style="background:${task.is_premium ? 'var(--warning-bg)' : 'var(--accent-glow)'}; color:${task.is_premium ? 'var(--warning)' : 'var(--accent)'}; padding:3px 10px; border-radius:12px; font-size:10px; font-weight:800;">
+              <span style="background:${task.is_premium ? 'var(--warning-bg)' : 'var(--accent-glow)'}; color:${task.is_premium ? 'var(--warning)' : 'var(--accent)'}; padding:3px 10px; border-radius:12px; font-size:10px; font-weight:800;">
                 ${task.is_premium ? '★ PREMIUM 2x' : 'GENERAL'}
               </span>
               <span class="reward-pill">${formatCurrency(task.reward)}</span>
             </div>
-            <h1 style="font-size:20px; margin:12px 0 6px;">${escapeHtml(task.title)}</h1>
-            <div style="font-size:13px; color:var(--text-secondary);">${escapeHtml(task.task_type)} • ${task.slots_left} slots left</div>
+            <h1 style="font-size:20px; margin:12px 0 6px;">${escapeHtml(task.task_type)}</h1>
+            <div style="font-size:13px; color:var(--text-secondary); margin-bottom:4px;">${escapeHtml(task.title)}</div>
+            <div style="font-size:12px; color:var(--text-secondary);">${escapeHtml(task.platform_name)} • ${task.slots_left} slots left • ${escapeHtml(task.verification_label)}</div>
           </div>
 
           <div class="detail-card">
             <div class="info-label">Instructions</div>
             <p style="font-size:14px; color:var(--text-secondary); line-height:1.7; white-space:pre-wrap;">${escapeHtml(task.instructions)}</p>
-
             <div class="info-box">
               <div class="info-label">Destination Link</div>
               <a href="${escapeHtml(task.destination_link)}" target="_blank" style="color:var(--accent); text-decoration:none; font-size:14px;">${escapeHtml(task.destination_link)}</a>
             </div>
-
             ${task.proof_requirements ? `
             <div class="info-box" style="border-left-color: var(--warning);">
               <div class="info-label">Proof Requirement</div>
@@ -100,24 +100,52 @@
 
           ${!existing ? `
           <div class="detail-card">
-            <div class="info-label">Submit Your Proof</div>
-            <input type="url" id="proofUrl" placeholder="https://... (paste proof link)" style="width:100%; padding:13px; background:var(--bg-primary); border:1px solid var(--border); border-radius:10px; color:var(--text-primary); margin:8px 0 14px; font-size:14px;" />
+            <div class="info-label">Upload Proof Screenshot (image, max 1MB)</div>
+            <div class="upload-zone" id="uploadZone">
+              <div style="font-size:26px;">📸</div>
+              <div style="font-size:13px; color:var(--text-secondary); margin-top:6px;">Tap to choose a screenshot<br/><span id="fileLabel" style="font-size:11px;">PNG/JPG • ≤ 1MB • deleted automatically after review</span></div>
+              <input type="file" id="proofFile" accept="image/*" style="display:none;" />
+            </div>
+            <div class="info-label">Additional Info (optional)</div>
+            <textarea id="commentBox" class="f-input" style="min-height:80px; width:100%; padding:12px; background:var(--bg-primary); border:1px solid var(--border); border-radius:10px; color:var(--text-primary); margin-bottom:14px;"
+              placeholder="Username, email, or anything the advertiser asked for..."></textarea>
             <button class="btn btn-primary w-full" id="submitBtn">Submit for Review</button>
             <p style="font-size:11px; color:var(--text-muted); margin-top:10px; text-align:center;">Fake proofs lead to instant rejection and reputation loss.</p>
           </div>` : ''}
         `;
 
+        const zone = document.getElementById('uploadZone');
+        if (zone) {
+          zone.addEventListener('click', () => document.getElementById('proofFile').click());
+          document.getElementById('proofFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (file.size > 1024 * 1024) {
+              showToast('Image is too large. Maximum size is 1MB.', 'error');
+              e.target.value = '';
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+              proofDataUrl = reader.result;
+              zone.innerHTML = `<img src="${proofDataUrl}" alt="proof preview" /><div style="font-size:12px; color:var(--success); font-weight:700; margin-top:8px;">✓ ${escapeHtml(file.name)} (${(file.size / 1024).toFixed(0)}KB) — tap to change</div>`;
+            };
+            reader.readAsDataURL(file);
+          });
+        }
+
         const btn = document.getElementById('submitBtn');
         if (btn) {
           btn.addEventListener('click', async () => {
-            const proofUrl = document.getElementById('proofUrl').value.trim();
-            if (!/^https?:\/\/.+\..+/.test(proofUrl)) {
-              showToast('Enter a valid http/https proof link.', 'error');
-              return;
-            }
+            if (!proofDataUrl) { showToast('Attach your proof screenshot first.', 'error'); return; }
             btn.disabled = true; btn.textContent = 'Submitting...';
             try {
-              await apiClient.request('tasks.js', { action: 'submit', taskId, proofUrl });
+              await apiClient.request('tasks.js', {
+                action: 'submit',
+                taskId,
+                proofDataUrl,
+                comment: document.getElementById('commentBox').value
+              });
               showToast('Submitted! Track it in My Submissions.', 'success');
               setTimeout(() => window.location.reload(), 1200);
             } catch (err) {
