@@ -3,7 +3,7 @@ const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 const { getPlatformStats } = require('../lib/analytics');
-const { sendNotification, sendAnnouncement, sendEmailBroadcast, pushToUser } = require('../lib/notifications');
+const { sendNotification, sendAnnouncement, sendEmailBroadcast, pushToUser, collectUserEmails } = require('../lib/notifications');
 
 const SETTING_RULES = {
   daily_checkin_reward:        { type: 'number', min: 0,   max: 10000 },
@@ -30,7 +30,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { stats });
       }
 
-      // ---------- STORAGE HYGIENE: delete proofs of decided tasks ----------
       case 'purge_decided_proofs': {
         const { data: rows, error } = await supabaseAdmin
           .from('task_submissions')
@@ -38,14 +37,11 @@ module.exports = async (req, res) => {
           .in('status', ['APPROVED', 'REJECTED'])
           .not('proof_url', 'is', null)
           .limit(100);
-
         if (error) throw error;
         if (!rows || rows.length === 0) return sendSuccess(res, { purged: 0 });
 
         const paths = rows
-          .map(r => {
-            try { return decodeURIComponent(r.proof_url.split('/proofs/').pop().split('?')[0]); } catch (e) { return null; }
-          })
+          .map(r => { try { return decodeURIComponent(r.proof_url.split('/proofs/').pop().split('?')[0]); } catch (e) { return null; } })
           .filter(p => p && p.endsWith('.jpg'));
 
         let purged = 0;
@@ -54,19 +50,76 @@ module.exports = async (req, res) => {
           if (rmErr) console.error('purge storage error:', rmErr);
           else purged = paths.length;
         }
-
-        await supabaseAdmin
-          .from('task_submissions')
-          .update({ proof_url: null })
-          .in('id', rows.map(r => r.id));
-
+        await supabaseAdmin.from('task_submissions').update({ proof_url: null }).in('id', rows.map(r => r.id));
         return sendSuccess(res, { purged }, `Purged ${purged} decided proof images.`);
       }
 
-      // ---------- PLATFORM CATALOG ----------
+      // ---------- BROADCAST INFO (total users + recent announcements) ----------
+      case 'get_broadcast_info': {
+        const emails = await collectUserEmails();
+        const { data: anns } = await supabaseAdmin
+          .from('announcements')
+          .select('id, title, message, type, created_at')
+          .order('created_at', { ascending: false })
+          .limit(10);
+        return sendSuccess(res, { total_users: emails.length, announcements: anns || [] });
+      }
+
+      // ---------- EMAIL-ONLY BATCH (next sets of users) ----------
+      case 'send_email_batch': {
+        const { announcementId, title, message, emailOffset, emailLimit, emailOnly } = req.body;
+
+        let finalTitle = title;
+        let finalMessage = message;
+
+        if (announcementId) {
+          const { data: ann } = await supabaseAdmin.from('announcements').select('title, message').eq('id', announcementId).single();
+          if (!ann) return sendError(res, 'NOT_FOUND', 'Announcement not found.', 404);
+          finalTitle = ann.title;
+          finalMessage = ann.message;
+        }
+
+        if (!finalTitle || !finalMessage) return sendError(res, 'VALIDATION_ERROR', 'Title and message required.', 400);
+        if (!process.env.RESEND_API_KEY) {
+          return sendError(res, 'EMAIL_NOT_CONFIGURED', 'Add RESEND_API_KEY to Vercel environment variables.', 500);
+        }
+
+        // Optional: also re-push in-app (switch OFF = email + in-app again)
+        if (emailOnly === false) {
+          await sendAnnouncement(finalTitle, finalMessage, 'ANNOUNCEMENT');
+        }
+
+        const result = await sendEmailBroadcast(finalTitle, finalMessage, Number(emailOffset) || 0, Number(emailLimit) || 100);
+        return sendSuccess(res, { email: result },
+          `Email batch ${result.rangeStart}–${result.rangeEnd}: ${result.sent} sent, ${result.failed} failed (of ${result.total} users).`);
+      }
+
+      // ---------- PUBLISH ANNOUNCEMENT (in-app all + optional email batch) ----------
+      case 'create_announcement': {
+        const { title, message, type, sendEmail, emailOffset, emailLimit } = req.body;
+        if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+
+        if (sendEmail && !process.env.RESEND_API_KEY) {
+          return sendError(res, 'EMAIL_NOT_CONFIGURED', 'Add RESEND_API_KEY to Vercel environment variables to send email.', 500);
+        }
+
+        await sendAnnouncement(title, message, type);
+
+        let emailResult = null;
+        if (sendEmail) {
+          emailResult = await sendEmailBroadcast(title, message, Number(emailOffset) || 0, Number(emailLimit) || 100);
+        }
+
+        const msg = emailResult
+          ? `Published to all in-app. Email batch ${emailResult.rangeStart}–${emailResult.rangeEnd}: ${emailResult.sent} sent, ${emailResult.failed} failed.`
+          : 'Published to in-app notifications.';
+
+        return sendSuccess(res, { email: emailResult }, msg);
+      }
+
+      // ---------- CATALOG ----------
       case 'get_platforms': {
-        const { data, error } = await supabaseAdmin
-          .from('platforms').select('*').order('sort_order', { ascending: true }).order('name');
+        const { data, error } = await supabaseAdmin.from('platforms').select('*').order('sort_order', { ascending: true }).order('name');
         if (error) throw error;
         return sendSuccess(res, { platforms: data || [] });
       }
@@ -74,10 +127,8 @@ module.exports = async (req, res) => {
       case 'add_platform': {
         const { name, logo_url } = req.body;
         if (!name || !String(name).trim()) return sendError(res, 'VALIDATION_ERROR', 'Platform name required.', 400);
-        const { data, error } = await supabaseAdmin
-          .from('platforms')
-          .insert({ name: String(name).trim(), logo_url: (logo_url || '').trim() || null })
-          .select().single();
+        const { data, error } = await supabaseAdmin.from('platforms')
+          .insert({ name: String(name).trim(), logo_url: (logo_url || '').trim() || null }).select().single();
         if (error) {
           if (error.code === '23505') throw { code: 'DUPLICATE', message: 'Platform already exists.', statusCode: 400 };
           throw error;
@@ -116,17 +167,9 @@ module.exports = async (req, res) => {
         if (!name || !String(name).trim()) return sendError(res, 'VALIDATION_ERROR', 'Task type name required.', 400);
         const nums = [base_advertiser_cost, base_earner_reward, premium_advertiser_cost, premium_earner_reward].map(Number);
         if (nums.some(n => isNaN(n) || n < 0)) return sendError(res, 'VALIDATION_ERROR', 'All prices must be numbers ≥ 0.', 400);
-        if (nums[1] >= nums[0] || nums[3] >= nums[2]) {
-          return sendError(res, 'VALIDATION_ERROR', 'Earner reward must be lower than advertiser cost (platform margin).', 400);
-        }
-        const { data, error } = await supabaseAdmin
-          .from('task_types')
-          .insert({
-            name: String(name).trim(),
-            base_advertiser_cost: nums[0], base_earner_reward: nums[1],
-            premium_advertiser_cost: nums[2], premium_earner_reward: nums[3],
-            is_active: true
-          })
+        if (nums[1] >= nums[0] || nums[3] >= nums[2]) return sendError(res, 'VALIDATION_ERROR', 'Earner reward must be lower than advertiser cost.', 400);
+        const { data, error } = await supabaseAdmin.from('task_types')
+          .insert({ name: String(name).trim(), base_advertiser_cost: nums[0], base_earner_reward: nums[1], premium_advertiser_cost: nums[2], premium_earner_reward: nums[3], is_active: true })
           .select().single();
         if (error) {
           if (error.code === '23505') throw { code: 'DUPLICATE', message: 'Task type already exists.', statusCode: 400 };
@@ -150,13 +193,11 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Task type updated.');
       }
 
-      // ---------- CORE ADMIN TOOLS ----------
+      // ---------- CORE TOOLS ----------
       case 'get_campaigns_for_review': {
-        const { data } = await supabaseAdmin
-          .from('campaigns')
+        const { data } = await supabaseAdmin.from('campaigns')
           .select('*, advertiser:advertiser_id(full_name), task_types:task_type_id(name)')
-          .eq('status', 'SUBMITTED')
-          .order('created_at', { ascending: false });
+          .eq('status', 'SUBMITTED').order('created_at', { ascending: false });
         return sendSuccess(res, { campaigns: data || [] });
       }
 
@@ -164,9 +205,7 @@ module.exports = async (req, res) => {
         const { campaignId, reviewAction, adminNote } = req.body;
         if (!campaignId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
         const { data: campaign } = await supabaseAdmin.from('campaigns').select('title, advertiser_id').eq('id', campaignId).single();
-        const { error } = await supabaseAdmin.rpc('admin_review_campaign', {
-          p_campaign_id: campaignId, p_admin_id: profile.id, p_action: reviewAction, p_admin_note: adminNote
-        });
+        const { error } = await supabaseAdmin.rpc('admin_review_campaign', { p_campaign_id: campaignId, p_admin_id: profile.id, p_action: reviewAction, p_admin_note: adminNote });
         if (error) throw error;
         if (reviewAction === 'APPROVED') await sendNotification(campaign.advertiser_id, 'Campaign Approved!', `Your campaign "${campaign.title}" is now LIVE.`, 'CAMPAIGN');
         else if (reviewAction === 'REJECTED') await sendNotification(campaign.advertiser_id, 'Campaign Rejected', `Your campaign "${campaign.title}" was rejected.`, 'CAMPAIGN');
@@ -177,28 +216,11 @@ module.exports = async (req, res) => {
         const { withdrawalId, action: wdAction } = req.body;
         if (!withdrawalId || !wdAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
         const { data: withdrawal } = await supabaseAdmin.from('withdrawals').select('user_id, amount').eq('id', withdrawalId).single();
-        const { error } = await supabaseAdmin.rpc('admin_process_withdrawal', {
-          p_withdrawal_id: withdrawalId, p_admin_id: profile.id, p_action: wdAction
-        });
+        const { error } = await supabaseAdmin.rpc('admin_process_withdrawal', { p_withdrawal_id: withdrawalId, p_admin_id: profile.id, p_action: wdAction });
         if (error) throw error;
         const msg = wdAction === 'COMPLETED' ? `Withdrawal of ₦${withdrawal.amount} processed.` : 'Withdrawal rejected. Funds returned.';
         await sendNotification(withdrawal.user_id, wdAction === 'COMPLETED' ? 'Withdrawal Processed' : 'Withdrawal Rejected', msg, 'WALLET');
         return sendSuccess(res, {}, msg);
-      }
-
-      case 'create_announcement': {
-        const { title, message, type, sendEmail } = req.body;
-        if (!title || !message) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
-        if (sendEmail && !process.env.RESEND_API_KEY) {
-          return sendError(res, 'EMAIL_NOT_CONFIGURED', 'Add RESEND_API_KEY to Vercel environment variables.', 500);
-        }
-        await sendAnnouncement(title, message, type);
-        let emailResult = null;
-        if (sendEmail) emailResult = await sendEmailBroadcast(title, message);
-        const msg = emailResult
-          ? `Published. Email sent to ${emailResult.sent} users${emailResult.failed ? ` (${emailResult.failed} failed)` : ''}.`
-          : 'Published to in-app notifications.';
-        return sendSuccess(res, { email: emailResult }, msg);
       }
 
       case 'get_leaderboard': {
@@ -220,20 +242,12 @@ module.exports = async (req, res) => {
         const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', userId).single();
         if (!wallet) return sendError(res, 'WALLET_NOT_FOUND', 'This user has no wallet.', 404);
         const { error: updErr } = await supabaseAdmin.from('wallets')
-          .update({ available_balance: Number(wallet.available_balance) + amt, updated_at: new Date().toISOString() })
-          .eq('user_id', userId);
+          .update({ available_balance: Number(wallet.available_balance) + amt, updated_at: new Date().toISOString() }).eq('user_id', userId);
         if (updErr) throw updErr;
-
-        const { error: ledErr } = await supabaseAdmin.from('wallet_ledger').insert({
-          user_id: userId, transaction_type: 'ADMIN_BONUS', amount: amt, direction: 'CREDIT', status: 'COMPLETED', reference: 'BONUS-' + Date.now()
-        });
+        const { error: ledErr } = await supabaseAdmin.from('wallet_ledger').insert({ user_id: userId, transaction_type: 'ADMIN_BONUS', amount: amt, direction: 'CREDIT', status: 'COMPLETED', reference: 'BONUS-' + Date.now() });
         if (ledErr) throw ledErr;
-
-        const { error: audErr } = await supabaseAdmin.from('reward_audit').insert({
-          admin_id: profile.id, user_id: userId, amount: amt, note: cleanNote, period_label: periodLabel
-        });
+        const { error: audErr } = await supabaseAdmin.from('reward_audit').insert({ admin_id: profile.id, user_id: userId, amount: amt, note: cleanNote, period_label: periodLabel });
         if (audErr) throw audErr;
-
         await sendNotification(userId, 'Leadership Bonus!', `You received ₦${amt.toLocaleString()} for outstanding performance (${cleanNote}). Keep shining!`, 'WALLET');
         pushToUser(userId, 'Leadership Bonus!', `₦${amt.toLocaleString()} bonus credited to your wallet.`);
         return sendSuccess(res, {}, `Reward of ₦${amt.toLocaleString()} sent successfully.`);
@@ -241,8 +255,7 @@ module.exports = async (req, res) => {
 
       case 'get_reward_history': {
         const { data: rows, error } = await supabaseAdmin.from('reward_audit')
-          .select('id, user_id, amount, note, period_label, created_at')
-          .order('created_at', { ascending: false }).limit(50);
+          .select('id, user_id, amount, note, period_label, created_at').order('created_at', { ascending: false }).limit(50);
         if (error) throw error;
         if (!rows || rows.length === 0) return sendSuccess(res, { rewards: [] });
         const userIds = [...new Set(rows.map(r => r.user_id))];
@@ -258,8 +271,7 @@ module.exports = async (req, res) => {
 
       case 'get_users': {
         const { data } = await supabaseAdmin.from('profiles')
-          .select('id, full_name, role, is_suspended, created_at')
-          .order('created_at', { ascending: false }).limit(100);
+          .select('id, full_name, role, is_suspended, created_at').order('created_at', { ascending: false }).limit(100);
         return sendSuccess(res, { users: data || [] });
       }
 
