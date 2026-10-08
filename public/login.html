@@ -5,161 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Login - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/ui-components.css" />
-  <style>
-    html, body { height: 100%; margin: 0; }
-
-    /* FULL-SCREEN immersive background */
-    .login-wrap {
-      min-height: 100vh;
-      min-height: 100dvh;
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      position: relative;
-      overflow: hidden;
-      background:
-        radial-gradient(1100px 550px at 85% -10%, var(--accent-glow), transparent 60%),
-        radial-gradient(900px 500px at -15% 110%, rgba(67, 56, 202, 0.20), transparent 60%),
-        var(--bg-primary);
-    }
-
-    /* Glow orbs */
-    .login-wrap::before,
-    .login-wrap::after {
-      content: '';
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(90px);
-      opacity: .5;
-      pointer-events: none;
-    }
-    .login-wrap::before {
-      width: 340px; height: 340px;
-      background: var(--accent);
-      opacity: .16;
-      top: -120px; right: -100px;
-    }
-    .login-wrap::after {
-      width: 300px; height: 300px;
-      background: #4338ca;
-      opacity: .18;
-      bottom: -110px; left: -90px;
-    }
-
-    .login-card {
-      position: relative;
-      z-index: 2;
-      width: 100%;
-      max-width: 430px;
-      background: var(--bg-secondary);
-      background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--border);
-      border-radius: 22px;
-      padding: 36px 28px;
-      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
-    }
-    :root[data-theme="light"] .login-card { box-shadow: 0 24px 70px rgba(15, 23, 42, 0.14); }
-
-    .login-logo { font-size: 28px; font-weight: 800; text-align: center; margin-bottom: 6px; }
-    .login-sub { text-align: center; color: var(--text-secondary); font-size: 13px; margin-bottom: 26px; }
-
-    .f-label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
-    .f-input {
-      width: 100%; padding: 13px 14px;
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      color: var(--text-primary);
-      margin-bottom: 16px; font-size: 14px;
-    }
-    .f-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-
-    .login-links { display: flex; justify-content: space-between; margin-top: 18px; font-size: 13px; }
-    .login-links a { text-decoration: none; }
-  </style>
+  <link rel="stylesheet" href="/css/landing.css" />
 </head>
 <body>
-  <div class="login-wrap">
-    <div class="login-card">
-      <div class="login-logo yolo-brand">YOLOTASK</div>
-      <div class="login-sub">Sign in to your account</div>
-
-      <label class="f-label" for="email">Email</label>
-      <input type="email" id="email" class="f-input" placeholder="you@example.com" autocomplete="email" />
-
-      <label class="f-label" for="password">Password</label>
-      <input type="password" id="password" class="f-input" placeholder="••••••••" autocomplete="current-password" />
-
-      <button class="btn btn-primary w-full" id="loginBtn" type="button">Sign In</button>
-
-      <div class="login-links">
-        <a href="/forgot-password.html" style="color:var(--text-secondary);">Forgot password?</a>
-        <a href="/register.html" style="color:var(--accent); font-weight:600;">Create account</a>
-      </div>
+  <div class="auth-stage">
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <div class="flip-scene">
+      <div class="flip-card" id="flipCard"></div>
     </div>
   </div>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
+  <script src="/js/public.js"></script>
   <script>
-    // NOTE: named LOGIN_HOME on purpose — auth.js already owns the global ROLE_HOME
-    const LOGIN_HOME = {
-      earner: '/earner/dashboard.html',
-      advertiser: '/advertiser/dashboard.html',
-      reviewer: '/reviewer/dashboard.html',
-      admin: '/admin/dashboard.html'
-    };
-
-    // Auto-route anyone already signed in (admin lands on admin dashboard)
+    // Auto-route already-logged-in users
     (async () => {
       if (!localStorage.getItem('yolotask_token')) return;
       try {
         const res = await apiClient.request('auth.js', { action: 'get-session' });
         const p = res.data.profile;
         localStorage.setItem('yolotask_user', JSON.stringify(p));
-        window.location.replace(LOGIN_HOME[p.role] || '/login.html');
-      } catch (e) { /* invalid token — stay on login */ }
+        const HOME = { earner: '/earner/dashboard.html', advertiser: '/advertiser/dashboard.html', reviewer: '/reviewer/dashboard.html', admin: '/admin/dashboard.html' };
+        window.location.replace(HOME[p.role] || '/login.html');
+      } catch (e) { /* stay */ }
     })();
 
-    document.getElementById('loginBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('loginBtn');
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
-
-      if (!email || !password) { showToast('Enter your email and password.', 'error'); return; }
-
-      btn.disabled = true; btn.textContent = 'Signing in...';
-
-      try {
-        const res = await apiClient.request('auth.js', { action: 'login', email, password });
-
-        const token = res.data && res.data.session && res.data.session.access_token;
-        if (!token) throw new Error('Login response missing session token.');
-
-        localStorage.setItem('yolotask_token', token);
-
-        const s = await apiClient.request('auth.js', { action: 'get-session' });
-        const p = s.data.profile;
-        localStorage.setItem('yolotask_user', JSON.stringify(p));
-
-        showToast(`Welcome back, ${p.full_name}!`, 'success');
-        setTimeout(() => { window.location.href = LOGIN_HOME[p.role] || '/login.html'; }, 500);
-      } catch (err) {
-        showToast(err.message || 'Login failed.', 'error');
-        btn.disabled = false; btn.textContent = 'Sign In';
-      }
-    });
-
-    // Enter key submits
-    document.getElementById('password').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('loginBtn').click();
-    });
+    __initFlipAuth('login', null);
   </script>
 </body>
 </html>
