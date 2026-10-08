@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
-  <link rel="stylesheet" href="/css/mobile-nav.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <style>
-    .balance-card { background: linear-gradient(135deg, var(--accent), #0077aa); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 18px; }
+    .balance-card { background: linear-gradient(135deg, var(--accent), #4338ca); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 18px; }
     .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
     .quick-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-decoration: none; color: var(--text-primary); }
     .quick-card .qc-icon { font-size: 22px; margin-bottom: 6px; }
@@ -16,24 +15,39 @@
     .quick-card .qc-sub { font-size: 11px; color: var(--text-secondary); }
     .progress-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 18px; }
     .pbar { height: 10px; background: var(--bg-primary); border-radius: 6px; overflow: hidden; margin: 10px 0 6px; }
-    .pbar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #0077aa); border-radius: 6px; transition: width .6s ease; }
+    .pbar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #4338ca); border-radius: 6px; transition: width .6s ease; }
+
+    /* Famsup-style task cards */
+    .task-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 18px; padding: 18px; margin-bottom: 14px; }
+    .tc-top { display: flex; gap: 14px; align-items: flex-start; }
+    .tc-logo { width: 52px; height: 52px; border-radius: 14px; background: var(--bg-primary); border: 1px solid var(--border); padding: 8px; object-fit: contain; flex-shrink: 0; }
+    .tc-meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 2px; }
+    .tc-title { font-size: 17px; font-weight: 800; margin-bottom: 2px; }
+    .tc-sub { font-size: 12.5px; color: var(--text-secondary); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tc-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tc-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; font-size: 11.5px; font-weight: 700; }
+    .tc-chip.prem { background: var(--warning-bg); border-color: var(--warning); color: var(--warning); }
+    .tc-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 14px; }
+    .tc-earn-lbl { font-size: 12px; color: var(--text-secondary); }
+    .tc-earn { font-size: 20px; font-weight: 900; }
+    .tc-start { padding: 11px 20px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-primary); font-weight: 800; font-size: 14px; text-decoration: none; }
+    .tc-start:hover { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body>
-  <header class="flex justify-between items-center" style="padding: 15px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
-    <div style="font-weight:800; color:var(--accent);">YOLOTASK</div>
-    <div style="font-size:13px; color:var(--text-secondary);" id="userName">Loading...</div>
+  <header class="flex justify-between items-center" style="padding:15px 20px;">
+    <div class="yolo-brand" style="font-size:20px;">YOLOTASK</div>
+    <div style="font-weight:700; font-size:15px;" id="userName">Loading...</div>
   </header>
 
-  <div class="container" style="padding: 25px 20px; max-width: 720px;">
+  <main class="container" style="padding:22px 18px 120px; max-width:760px;">
     <div class="balance-card">
       <div style="font-size:13px; opacity:.85;">Available Balance</div>
       <div style="font-size:34px; font-weight:800; margin:4px 0;" id="walletBalance">₦0.00</div>
       <a href="/earner/wallet.html" style="color:#fff; font-size:13px; text-decoration:underline;">Withdraw / History →</a>
     </div>
 
-    <!-- PROGRESS BAR CARD -->
-    <div class="progress-card" id="progressCard">
+    <div class="progress-card">
       <div class="flex justify-between items-center">
         <div style="font-weight:700; font-size:14px;">Rank Progress</div>
         <span id="rankBadge" style="background:var(--accent-glow); color:var(--accent); padding:4px 12px; border-radius:14px; font-size:12px; font-weight:800;">Bronze</span>
@@ -46,45 +60,24 @@
     </div>
 
     <div class="quick-grid">
-      <a href="/earner/my-submissions.html" class="quick-card">
-        <div class="qc-icon">📋</div>
-        <div class="qc-title">My Submissions</div>
-        <div class="qc-sub">Approved / Pending / Rejected</div>
-      </a>
-      <a href="/earner/leaderboard.html" class="quick-card">
-        <div class="qc-icon">🏆</div>
-        <div class="qc-title">Leaderboard</div>
-        <div class="qc-sub">Weekly & monthly champions</div>
-      </a>
+      <a href="/earner/my-submissions.html" class="quick-card"><div class="qc-icon">📋</div><div class="qc-title">My Submissions</div><div class="qc-sub">Approved / Pending / Rejected</div></a>
+      <a href="/earner/leaderboard.html" class="quick-card"><div class="qc-icon">🏆</div><div class="qc-title">Leaderboard</div><div class="qc-sub">Weekly & monthly champions</div></a>
     </div>
 
-    <div class="flex justify-between items-center" style="margin-bottom: 12px;">
+    <div class="flex justify-between items-center" style="margin-bottom:12px;">
       <h2 style="font-size:18px;">Featured Tasks</h2>
       <a href="/earner/tasks.html" style="font-size:13px; color:var(--accent); text-decoration:none;">View All →</a>
     </div>
-    <div id="featuredTasks" style="display:grid; grid-template-columns:1fr; gap:14px;">
-      <div class="skeleton skeleton-card"></div>
-    </div>
-  </div>
-
-  <nav class="mobile-bottom-nav">
-    <a href="/earner/dashboard.html" class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span>Home</span></a>
-    <a href="/earner/tasks.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg><span>Tasks</span></a>
-    <a href="/earner/wallet.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path></svg><span>Wallet</span></a>
-    <a href="/earner/referrals.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path></svg><span>Refer</span></a>
-    <a href="/earner/profile.html" class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="7" r="4"></circle></svg><span>Profile</span></a>
-  </nav>
+    <div id="featuredTasks"><div class="skeleton skeleton-card"></div></div>
+  </main>
 
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
     const RANKS = [
-      { name: 'Bronze', min: 0 },
-      { name: 'Silver', min: 45 },
-      { name: 'Gold', min: 60 },
-      { name: 'Platinum', min: 75 },
-      { name: 'Diamond', min: 90 }
+      { name: 'Bronze', min: 0 }, { name: 'Silver', min: 45 }, { name: 'Gold', min: 60 },
+      { name: 'Platinum', min: 75 }, { name: 'Diamond', min: 90 }
     ];
 
     (async () => {
@@ -93,7 +86,7 @@
       document.getElementById('userName').textContent = profile.full_name;
 
       try {
-        const [balRes, repRes, taskRes] = await Promise.all([
+        const [balRes, repRes, feedRes] = await Promise.all([
           apiClient.request('wallet.js', { action: 'get_balance' }),
           apiClient.request('tasks.js', { action: 'get_my_reputation' }),
           apiClient.request('tasks.js', { action: 'get_feed' })
@@ -101,15 +94,12 @@
 
         document.getElementById('walletBalance').textContent = formatCurrency(balRes.data.wallet.available_balance);
 
-        // Progress bar math
         const rep = repRes.data.reputation;
         const score = Number(rep.reputation_score || 0);
         const current = [...RANKS].reverse().find(r => score >= r.min) || RANKS[0];
         const next = RANKS.find(r => r.min > score);
-
         document.getElementById('rankBadge').textContent = current.name;
         document.getElementById('tasksDoneLabel').textContent = `${rep.tasks_completed || 0} tasks done`;
-
         if (next) {
           const pct = Math.max(0, Math.min(100, ((score - current.min) / (next.min - current.min)) * 100));
           document.getElementById('pbarFill').style.width = pct + '%';
@@ -119,21 +109,32 @@
           document.getElementById('progressLabel').textContent = `Max rank achieved — ${Math.floor(score)} pts`;
         }
 
-        // Featured tasks
-        const tasks = (taskRes.data.tasks || []).slice(0, 3);
+        const tasks = (feedRes.data.tasks || []).slice(0, 3);
         const feed = document.getElementById('featuredTasks');
         if (tasks.length === 0) {
-          feed.innerHTML = '<div class="quick-card" style="text-align:center; color:var(--text-secondary);">No tasks available right now.</div>';
+          feed.innerHTML = '<div class="task-card" style="text-align:center; color:var(--text-secondary); padding:36px;">No tasks available right now.</div>';
         } else {
-          feed.innerHTML = tasks.map(task => `
-            <div class="quick-card" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-              <div style="min-width:0;">
-                <div class="qc-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(task.title)}</div>
-                <div class="qc-sub">${escapeHtml(task.task_type)} • ${task.slots_left} slots</div>
+          feed.innerHTML = tasks.map(t => `
+            <div class="task-card">
+              <div class="tc-top">
+                <img class="tc-logo" src="${t.platform_logo || '/icons/icon.svg'}" onerror="this.src='/icons/icon.svg'" alt="" />
+                <div style="flex:1; min-width:0;">
+                  <div class="tc-meta">${escapeHtml(t.platform_name)} • Task</div>
+                  <div class="tc-title">${escapeHtml(t.task_type)}</div>
+                  <div class="tc-sub">${escapeHtml(t.title)}</div>
+                  <div class="tc-chips">
+                    <span class="tc-chip">👥 ${t.slots_left} slots left</span>
+                    <span class="tc-chip">☑️ ${escapeHtml(t.verification_label)}</span>
+                    ${t.is_premium ? '<span class="tc-chip prem">★ 2x Premium</span>' : ''}
+                  </div>
+                </div>
               </div>
-              <div style="text-align:right; flex-shrink:0;">
-                <div style="font-weight:800; color:var(--success); font-size:15px;">${formatCurrency(task.reward)}</div>
-                <a href="/earner/task-details.html?id=${task.id}" style="font-size:12px; color:var(--accent); text-decoration:none;">Start →</a>
+              <div class="tc-bottom">
+                <div>
+                  <div class="tc-earn-lbl">Earn</div>
+                  <div class="tc-earn">${formatCurrency(t.reward)}</div>
+                </div>
+                <a class="tc-start" href="/earner/task-details.html?id=${t.id}">Start Task</a>
               </div>
             </div>
           `).join('');
