@@ -23,12 +23,16 @@ module.exports = async (req, res) => {
     requireRole(profile, ['admin']);
 
     switch (action) {
+      case 'debug_smspool': {
+        const report = await smspool.rawProbe();
+        return sendSuccess(res, { report });
+      }
+
       case 'get_balance': {
         const balance = await smspool.getBalance();
         return sendSuccess(res, { balance_usd: balance });
       }
 
-      // ---------- DASHBOARD SUMMARY ----------
       case 'get_sms_stats': {
         const [settingsRes, servicesRes, verRes] = await Promise.all([
           supabaseAdmin.from('platform_settings').select('key, value').in('key', Object.keys(SMS_SETTING_RULES)),
@@ -50,7 +54,6 @@ module.exports = async (req, res) => {
           .filter(r => r.status === 'VERIFIED' || (r.status === 'ACTIVE' && !r.refunded))
           .reduce((s, r) => s + Number(r.charged_ngn || 0), 0);
 
-        // Recent 5 with user names
         const recent = rows.slice(0, 5);
         let recentEnriched = recent;
         if (recent.length > 0) {
