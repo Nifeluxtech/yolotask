@@ -1,4 +1,4 @@
-// /api/sms.js — user-facing SMS verification against the LIVE SMSPool catalog
+// /api/sms.js — user-facing SMS verification (margin-protected)
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
@@ -72,7 +72,6 @@ module.exports = async (req, res) => {
         if (!priceUsd) {
           return sendError(res, 'NO_POOLS', 'No number pools for this service + country right now. Try another country.', 400);
         }
-        // ₦ ONLY — the USD cost never leaves the server
         return sendSuccess(res, { price_ngn: priceNgn(priceUsd, s) });
       }
 
@@ -113,7 +112,8 @@ module.exports = async (req, res) => {
 
         let order;
         try {
-          order = await smspool.orderNumber({ serviceId: hit.smspool_service_id, countryId });
+          // maxPrice guard: SMSPool may only assign pools at/below our quoted cost
+          order = await smspool.orderNumber({ serviceId: hit.smspool_service_id, countryId, maxPrice: priceUsd });
         } catch (orderErr) {
           await refundUser(profile.id, charge, 'FAILED-ORDER');
           await supabaseAdmin.from('wallet_ledger').insert({
@@ -172,6 +172,7 @@ module.exports = async (req, res) => {
         const ageMin = (Date.now() - new Date(row.created_at).getTime()) / 60000;
         let state = 'WAITING';
         let smsText = '';
+        let realCost = 0;
 
         if (ageMin > ACTIVE_TIMEOUT_MIN) {
           state = 'CANCELLED';
@@ -180,9 +181,15 @@ module.exports = async (req, res) => {
             const st = await smspool.getStatus(row.smspool_order_id);
             state = st.state;
             smsText = st.smsText;
+            realCost = Number(st.cost || 0);
           } catch (e) {
             return sendSuccess(res, { status: 'ACTIVE', otp: null, number: row.phone_number, service_name: row.service_name, country_name: row.country_name });
           }
+        }
+
+        // Record SMSPool's REAL charge for margin reporting (never shown to users)
+        if (realCost > 0 && realCost !== Number(row.cost_usd)) {
+          await supabaseAdmin.from('sms_verifications').update({ cost_usd: realCost }).eq('id', row.id);
         }
 
         if (state === 'RECEIVED') {
