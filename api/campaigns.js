@@ -20,18 +20,19 @@ module.exports = async (req, res) => {
       const { profile } = await getAuthenticatedUser(req);
       requireRole(profile, ['advertiser']);
 
-      const [typesRes, interestsRes] = await Promise.all([
+      const [typesRes, interestsRes, platformsRes] = await Promise.all([
         supabaseAdmin.from('task_types').select('*'),
-        supabaseAdmin.from('interests').select('*')
+        supabaseAdmin.from('interests').select('*'),
+        supabaseAdmin.from('platforms').select('id, name, logo_url').eq('is_active', true).order('sort_order', { ascending: true }).order('name')
       ]);
 
       if (typesRes.error) console.error('get_reference_data task_types error:', typesRes.error);
       if (interestsRes.error) console.error('get_reference_data interests error:', interestsRes.error);
 
       return sendSuccess(res, {
-        version: 'camp-v4',
         task_types: (typesRes.data || []).filter(isActive),
-        interests: (interestsRes.data || []).filter(isActive)
+        interests: (interestsRes.data || []).filter(isActive),
+        platforms: platformsRes.data || []
       });
     }
 
@@ -40,11 +41,19 @@ module.exports = async (req, res) => {
 
     switch (action) {
       case 'create': {
-        const { title, task_type_id, instructions, destination_link, target_quantity } = req.body;
+        const { title, task_type_id, instructions, destination_link, target_quantity, platform_id } = req.body;
         if (!title || !task_type_id || !instructions || !destination_link || !target_quantity) {
           return sendError(res, 'VALIDATION_ERROR', 'Missing required fields.', 400);
         }
-        const campaign = await createCampaign(profile.id, req.body);
+
+        // Validate platform if provided
+        let cleanPlatformId = null;
+        if (platform_id) {
+          const { data: plat } = await supabaseAdmin.from('platforms').select('id').eq('id', platform_id).eq('is_active', true).maybeSingle();
+          if (plat) cleanPlatformId = plat.id;
+        }
+
+        const campaign = await createCampaign(profile.id, { ...req.body, platform_id: cleanPlatformId });
         return sendSuccess(res, { campaign }, 'Draft created.');
       }
 
@@ -55,14 +64,11 @@ module.exports = async (req, res) => {
       }
 
       case 'get_list': {
-        let query = supabaseAdmin
-          .from('campaigns')
-          .select('*, task_types:task_type_id(name)')
+        let query = supabaseAdmin.from('campaigns')
+          .select('*, task_types:task_type_id(name), platforms:platform_id(name, logo_url)')
           .eq('advertiser_id', profile.id)
           .order('created_at', { ascending: false });
-
         if (req.body.status) query = query.eq('status', req.body.status);
-
         const { data, error } = await query;
         if (error) throw error;
         return sendSuccess(res, { campaigns: data || [] });
@@ -77,18 +83,9 @@ module.exports = async (req, res) => {
       case 'update_campaign': {
         const { campaignId, title, instructions, destination_link } = req.body;
         if (!campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
-
-        const { error } = await supabaseAdmin
-          .from('campaigns')
-          .update({
-            title: title,
-            instructions: instructions,
-            destination_link: destination_link,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', campaignId)
-          .eq('advertiser_id', profile.id);
-
+        const { error } = await supabaseAdmin.from('campaigns')
+          .update({ title, instructions, destination_link, updated_at: new Date().toISOString() })
+          .eq('id', campaignId).eq('advertiser_id', profile.id);
         if (error) throw error;
         return sendSuccess(res, {}, 'Campaign updated.');
       }
@@ -96,65 +93,45 @@ module.exports = async (req, res) => {
       case 'change_status': {
         const { campaignId, newStatus } = req.body;
         if (!campaignId || !newStatus) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
-        if (!['PAUSED', 'LIVE', 'CANCELLED'].includes(newStatus)) {
-          return sendError(res, 'VALIDATION_ERROR', 'Invalid status.', 400);
-        }
-
+        if (!['PAUSED', 'LIVE', 'CANCELLED'].includes(newStatus)) return sendError(res, 'VALIDATION_ERROR', 'Invalid status.', 400);
         const { error } = await supabaseAdmin.rpc('change_campaign_status', {
-          p_campaign_id: campaignId,
-          p_advertiser_id: profile.id,
-          p_new_status: newStatus
+          p_campaign_id: campaignId, p_advertiser_id: profile.id, p_new_status: newStatus
         });
-
         if (error) throw { code: 'STATUS_ERROR', message: error.message, statusCode: 400 };
         return sendSuccess(res, {}, `Campaign ${newStatus.toLowerCase()} successfully.`);
       }
 
       case 'get_advertiser_settings': {
-        const { data, error } = await supabaseAdmin
-          .from('profiles')
+        const { data, error } = await supabaseAdmin.from('profiles')
           .select('business_name, business_website, business_contact_email, auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults')
-          .eq('id', profile.id)
-          .single();
-
+          .eq('id', profile.id).single();
         if (error) throw error;
         return sendSuccess(res, { settings: data });
       }
 
       case 'update_advertiser_settings': {
-        const {
-          business_name, business_website, business_contact_email,
-          auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults
-        } = req.body;
+        const { business_name, business_website, business_contact_email, auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults } = req.body;
 
         const hours = Number(auto_approve_hours);
-        if (!Number.isInteger(hours) || hours < 12 || hours > 336) {
-          return sendError(res, 'VALIDATION_ERROR', 'Approval window must be between 12 and 336 hours.', 400);
-        }
+        if (!Number.isInteger(hours) || hours < 12 || hours > 336) return sendError(res, 'VALIDATION_ERROR', 'Approval window must be between 12 and 336 hours.', 400);
 
         let threshold = null;
         if (low_balance_threshold !== null && low_balance_threshold !== undefined && String(low_balance_threshold).trim() !== '') {
           threshold = Number(low_balance_threshold);
-          if (isNaN(threshold) || threshold < 0) {
-            return sendError(res, 'VALIDATION_ERROR', 'Invalid balance threshold.', 400);
-          }
+          if (isNaN(threshold) || threshold < 0) return sendError(res, 'VALIDATION_ERROR', 'Invalid balance threshold.', 400);
         }
 
         let cleanEmail = null;
         if (business_contact_email && String(business_contact_email).trim() !== '') {
           cleanEmail = String(business_contact_email).trim();
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-            return sendError(res, 'VALIDATION_ERROR', 'Invalid contact email.', 400);
-          }
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return sendError(res, 'VALIDATION_ERROR', 'Invalid contact email.', 400);
         }
 
         let cleanSite = null;
         if (business_website && String(business_website).trim() !== '') {
           cleanSite = String(business_website).trim();
           if (!/^https?:\/\//i.test(cleanSite)) cleanSite = 'https://' + cleanSite;
-          try { new URL(cleanSite); } catch (e) {
-            return sendError(res, 'VALIDATION_ERROR', 'Invalid website URL.', 400);
-          }
+          try { new URL(cleanSite); } catch (e) { return sendError(res, 'VALIDATION_ERROR', 'Invalid website URL.', 400); }
         }
 
         const defaults = campaign_defaults || {};
@@ -165,8 +142,7 @@ module.exports = async (req, res) => {
           interest_ids: Array.isArray(defaults.interest_ids) ? defaults.interest_ids.slice(0, 20) : []
         };
 
-        const { data, error } = await supabaseAdmin
-          .from('profiles')
+        const { data, error } = await supabaseAdmin.from('profiles')
           .update({
             business_name: (business_name || '').trim() || null,
             business_website: cleanSite,
@@ -180,7 +156,6 @@ module.exports = async (req, res) => {
           .eq('id', profile.id)
           .select('business_name, business_website, business_contact_email, auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults')
           .single();
-
         if (error) throw error;
         return sendSuccess(res, { settings: data }, 'Business settings saved.');
       }
