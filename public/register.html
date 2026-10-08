@@ -3,126 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Register - YOLOTASK</title>
-  <link rel="stylesheet" href="/css/auth.css" />
+  <title>Create Account - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/landing.css" />
 </head>
 <body>
-  <div class="auth-container">
-    <div class="auth-logo">YOLOTASK</div>
-    <h2 style="text-align:center; margin-bottom:20px;">Create Account</h2>
-    
-    <form id="registerForm">
-      <div class="form-group">
-        <label>I want to join as:</label>
-        <select id="role" required>
-          <option value="earner">Earner (Complete Tasks)</option>
-          <option value="advertiser">Advertiser (Create Campaigns)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Full Name</label>
-        <input type="text" id="full_name" required />
-      </div>
-      <div class="form-group">
-        <label>Email Address</label>
-        <input type="email" id="email" required />
-      </div>
-      <div class="form-group">
-        <label>Gender</label>
-        <select id="gender" required>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
-          <option value="other">Other</option>
-          <option value="prefer_not_to_say">Prefer not to say</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="password" minlength="6" required />
-      </div>
-      <div class="form-group">
-        <label>Referral Code (Optional)</label>
-        <input type="text" id="referral_code" placeholder="YOLO-XXXX" />
-      </div>
-
-      <!-- Interests Section (Only for Earners) -->
-      <div class="form-group" id="interestsSection">
-        <label>Select at least 3 Interests <span id="interestCount" style="color:var(--accent)">(0/3)</span></label>
-        <div class="interests-grid" id="interestsGrid">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-
-      <button type="submit" class="btn-primary" id="regBtn">Create Account</button>
-      <div id="errorMsg" class="error-msg"></div>
-    </form>
-
-    <div class="auth-footer">
-      <p>Already have an account? <a href="/login.html">Login</a></p>
+  <div class="auth-stage">
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <div class="flip-scene">
+      <div class="flip-card" id="flipCard"></div>
     </div>
   </div>
 
   <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/public.js"></script>
   <script>
-    const interestsList = [
-      'Affiliate Marketing', 'Content Creator', 'Sports', 'Sport Betting', 
-      'Crypto', 'Forex Trading', 'Fashion', 'E-commerce', 'Technology', 
-      'Gaming', 'Education', 'Music', 'Real Estate', 'Digital Marketing', 'Social Media'
-    ];
-
-    const grid = document.getElementById('interestsGrid');
-    const selectedInterests = new Set();
-
-    interestsList.forEach(interest => {
-      const label = document.createElement('label');
-      label.className = 'interest-item';
-      label.innerHTML = `<input type="checkbox" value="${interest}"> ${interest}`;
-      label.querySelector('input').addEventListener('change', (e) => {
-        if (e.target.checked) selectedInterests.add(interest);
-        else selectedInterests.delete(interest);
-        document.getElementById('interestCount').textContent = `(${selectedInterests.size}/3)`;
-        label.classList.toggle('selected', e.target.checked);
-      });
-      grid.appendChild(label);
-    });
-
-    // Toggle interests visibility based on role
-    document.getElementById('role').addEventListener('change', (e) => {
-      document.getElementById('interestsSection').style.display = e.target.value === 'earner' ? 'block' : 'none';
-    });
-
-    document.getElementById('registerForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn = document.getElementById('regBtn');
-      const errDiv = document.getElementById('errorMsg');
-      const role = document.getElementById('role').value;
-      
-      if (role === 'earner' && selectedInterests.size < 3) {
-        errDiv.textContent = 'Please select at least 3 interests.';
-        return;
-      }
-
-      btn.disabled = true; btn.textContent = 'Creating Account...'; errDiv.textContent = '';
-
-      try {
-        await apiClient.request('auth.js', {
-          action: 'register',
-          role,
-          full_name: document.getElementById('full_name').value,
-          email: document.getElementById('email').value,
-          gender: document.getElementById('gender').value,
-          password: document.getElementById('password').value,
-          referral_code: document.getElementById('referral_code').value.trim() || null,
-          interests: Array.from(selectedInterests)
-        });
-
-        alert('Account created! Please login.');
-        window.location.href = '/login.html';
-      } catch (err) {
-        errDiv.textContent = err.message;
-        btn.disabled = false; btn.textContent = 'Create Account';
-      }
-    });
+    const refCode = new URLSearchParams(window.location.search).get('ref') || '';
+    __initFlipAuth('register', refCode);
   </script>
 </body>
 </html>
