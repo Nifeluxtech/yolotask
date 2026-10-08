@@ -13,6 +13,7 @@
     <aside class="admin-sidebar">
       <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html" class="active">📊 Dashboard</a>
+      <a href="/admin/sms.html">📱 SMS Control</a>
       <a href="/admin/catalog.html">🧩 Catalog</a>
       <a href="/admin/leaders.html">🏆 Leader Console</a>
       <a href="/admin/campaigns.html">📝 Campaigns</a>
@@ -40,6 +41,7 @@
       <div class="panel">
         <h3>Quick Actions</h3>
         <div class="quick-grid">
+          <a href="/admin/sms.html" class="quick-card"><div class="qc-icon">📱</div><div class="qc-title">SMS Management</div><div style="font-size:11px; color:var(--text-secondary);">Services, rates & audit</div></a>
           <a href="/admin/catalog.html" class="quick-card"><div class="qc-icon">🧩</div><div class="qc-title">Catalog Manager</div><div style="font-size:11px; color:var(--text-secondary);">Platforms & task types</div></a>
           <a href="/admin/campaigns.html" class="quick-card"><div class="qc-icon">📝</div><div class="qc-title">Review Campaigns</div></a>
           <a href="/admin/escalated.html" class="quick-card"><div class="qc-icon">⚠️</div><div class="qc-title">Escalated Tasks</div></a>
@@ -48,6 +50,31 @@
           <a href="/admin/users.html" class="quick-card"><div class="qc-icon">👥</div><div class="qc-title">Manage Users</div></a>
           <a href="/admin/announcements.html" class="quick-card"><div class="qc-icon">📢</div><div class="qc-title">Broadcast</div></a>
         </div>
+      </div>
+
+      <!-- SMS MANAGEMENT SECTION -->
+      <div class="panel" id="smsPanel">
+        <div class="flex justify-between items-center" style="margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+          <h3 style="margin:0;">📱 SMS Verification Management</h3>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <span class="badge gray" id="smsStateBadge">Loading…</span>
+            <label class="switch green" title="Master switch">
+              <input type="checkbox" id="smsQuickToggle" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="stat-grid" id="smsStats">
+          <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
+          <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
+          <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
+          <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
+        </div>
+
+        <div id="smsRecent" style="margin-bottom:12px;"></div>
+
+        <a href="/admin/sms.html" class="btn btn-outline" style="padding:9px 18px; font-size:13px;">Open Full SMS Control →</a>
       </div>
     </main>
   </div>
@@ -61,7 +88,7 @@
       if (!profile) return;
       document.getElementById('adminName').textContent = profile.full_name;
 
-      // Silent storage hygiene: purge proof images of decided tasks (auto-approve path)
+      // Silent storage hygiene
       apiClient.request('admin.js', { action: 'purge_decided_proofs' }).catch(() => {});
 
       try {
@@ -76,7 +103,71 @@
       } catch (err) {
         document.getElementById('statsGrid').innerHTML = `<div class="panel" style="color:var(--error); grid-column:1/-1;">${escapeHtml(err.message)}</div>`;
       }
+
+      loadSmsSection();
     })();
+
+    async function loadSmsSection() {
+      const badge = document.getElementById('smsStateBadge');
+      const toggle = document.getElementById('smsQuickToggle');
+
+      try {
+        const [balRes, statsRes] = await Promise.allSettled([
+          apiClient.request('smsadmin.js', { action: 'get_balance' }),
+          apiClient.request('smsadmin.js', { action: 'get_sms_stats' })
+        ]);
+
+        if (statsRes.status !== 'fulfilled') throw statsRes.reason || new Error('stats failed');
+        const st = statsRes.value.data;
+
+        badge.textContent = st.enabled ? `LIVE • ${st.services_active} services` : 'DISABLED';
+        badge.className = 'badge ' + (st.enabled ? 'green' : 'gray');
+        toggle.checked = !!st.enabled;
+
+        const balance = balRes.status === 'fulfilled'
+          ? '$' + Number(balRes.value.data.balance_usd).toFixed(2)
+          : '—';
+
+        document.getElementById('smsStats').innerHTML = `
+          <div class="stat-card"><div class="stat-lbl">SMSPool Balance</div><div class="stat-val ${balance === '—' ? 'danger' : 'good'}" style="font-size:22px;">${balance}</div></div>
+          <div class="stat-card"><div class="stat-lbl">Verifications</div><div class="stat-val">${st.verified}/${st.total}</div><div class="stat-lbl">verified / total</div></div>
+          <div class="stat-card"><div class="stat-lbl">Success Rate</div><div class="stat-val ${st.success_rate >= 70 ? 'good' : 'warn'}">${st.success_rate}%</div></div>
+          <div class="stat-card"><div class="stat-lbl">SMS Revenue</div><div class="stat-val good" style="font-size:21px;">${formatCurrency(st.revenue_ngn)}</div></div>
+        `;
+
+        const recent = st.recent || [];
+        document.getElementById('smsRecent').innerHTML = recent.length === 0
+          ? '<div style="color:var(--text-secondary); font-size:13px;">No verifications yet.</div>'
+          : recent.map(r => `
+            <div class="row-item">
+              <div>
+                <div style="font-weight:600; font-size:13.5px;">${escapeHtml(r.user_name)} → ${escapeHtml(r.service_name || 'Service')}</div>
+                <div class="row-sub">${formatDate(r.created_at)} • ${formatCurrency(r.charged_ngn)}${r.refunded ? ' (refunded)' : ''}</div>
+              </div>
+              <span class="badge ${r.status === 'VERIFIED' ? 'green' : r.status === 'ACTIVE' ? 'amber' : 'red'}">${r.status}</span>
+            </div>`).join('');
+      } catch (err) {
+        const msg = (err && err.code === 'SMS_NOT_CONFIGURED')
+          ? 'SMS not configured: add SMSPOOL_API_KEY to Vercel environment variables.'
+          : (err && err.message) || 'Could not load SMS stats.';
+        document.getElementById('smsStats').innerHTML = `<div class="stat-card" style="grid-column:1/-1; color:var(--warning); font-size:13px;">⚠️ ${escapeHtml(msg)}</div>`;
+        document.getElementById('smsRecent').innerHTML = '';
+        badge.textContent = 'NOT CONFIGURED';
+        badge.className = 'badge red';
+      }
+    }
+
+    document.getElementById('smsQuickToggle').addEventListener('change', async (e) => {
+      const on = e.target.checked;
+      try {
+        await apiClient.request('smsadmin.js', { action: 'update_settings', settings: { sms_enabled: on } });
+        showToast(on ? 'SMS verification is now LIVE.' : 'SMS verification disabled.', 'success');
+        loadSmsSection();
+      } catch (err) {
+        showToast(err.message, 'error');
+        e.target.checked = !on;
+      }
+    });
   </script>
 </body>
 </html>
