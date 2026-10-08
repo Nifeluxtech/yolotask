@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Catalog Manager - YOLOTASK Admin</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+</head>
+<body>
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
+      <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/catalog.html" class="active">🧩 Catalog</a>
+      <a href="/admin/leaders.html">🏆 Leader Console</a>
+      <a href="/admin/campaigns.html">📝 Campaigns</a>
+      <a href="/admin/escalated.html">⚠️ Escalated</a>
+      <a href="/admin/withdrawals.html">💸 Withdrawals</a>
+      <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/settings.html">⚙️ Settings</a>
+      <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-header">
+        <div class="page-title">Catalog Manager</div>
+      </header>
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:18px;">
+        Control the platforms (with logos) and task types advertisers can choose. Removed platforms fall back to "Other" (YOLOTASK logo).
+      </p>
+
+      <!-- PLATFORMS -->
+      <div class="panel">
+        <h3>📱 Platforms (Social Apps)</h3>
+        <div style="display:grid; grid-template-columns:2fr 2fr auto; gap:10px; margin-bottom:16px;">
+          <input type="text" id="platName" class="f-input" style="margin:0;" placeholder="Platform name (e.g. Snapchat)" />
+          <input type="url" id="platLogo" class="f-input" style="margin:0;" placeholder="Logo image URL (optional)" />
+          <button class="btn btn-primary" style="padding:10px 18px; font-size:13px;" id="addPlatBtn">Add</button>
+        </div>
+        <div id="platList"><div class="skeleton skeleton-text"></div></div>
+      </div>
+
+      <!-- TASK TYPES -->
+      <div class="panel">
+        <h3>✅ Task Types (Actions)</h3>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:16px;">
+          <input type="text" id="ttName" class="f-input" style="margin:0;" placeholder="Name (e.g. Comment on Post)" />
+          <input type="number" id="ttBaseCost" class="f-input" style="margin:0;" placeholder="Base cost ₦" min="1" />
+          <input type="number" id="ttBaseReward" class="f-input" style="margin:0;" placeholder="Base earn ₦" min="0" />
+          <input type="number" id="ttPremCost" class="f-input" style="margin:0;" placeholder="Premium cost ₦" min="1" />
+          <input type="number" id="ttPremReward" class="f-input" style="margin:0;" placeholder="Premium earn ₦" min="0" />
+          <button class="btn btn-primary" style="padding:10px 18px; font-size:13px;" id="addTtBtn">Add</button>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Rule: earner reward must be lower than advertiser cost (the difference is platform margin).</p>
+        <div id="ttList"><div class="skeleton skeleton-text"></div></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('admin');
+      if (!profile) return;
+      loadPlatforms();
+      loadTaskTypes();
+    })();
+
+    async function loadPlatforms() {
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_platforms' });
+        const plats = res.data.platforms || [];
+        document.getElementById('platList').innerHTML = plats.length === 0
+          ? '<div style="color:var(--text-secondary); font-size:13px;">No platforms yet.</div>'
+          : plats.map(p => `
+            <div class="row-item">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <img src="${p.logo_url || '/icons/icon.svg'}" onerror="this.src='/icons/icon.svg'" style="width:34px; height:34px; border-radius:10px; background:var(--bg-primary); padding:4px;" alt="" />
+                <div>
+                  <div style="font-weight:700; font-size:14px;">${escapeHtml(p.name)}</div>
+                  <div class="row-sub">${p.logo_url ? 'logo set' : 'no logo → YOLOTASK icon'}</div>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <span class="badge ${p.is_active ? 'green' : 'gray'}">${p.is_active ? 'Active' : 'Hidden'}</span>
+                <button class="btn btn-outline" style="padding:6px 10px; font-size:11px;" onclick="togglePlat('${p.id}', ${!p.is_active})">${p.is_active ? 'Hide' : 'Show'}</button>
+                <button class="btn btn-danger" style="padding:6px 10px; font-size:11px;" onclick="delPlat('${p.id}')">Remove</button>
+              </div>
+            </div>`).join('');
+      } catch (err) {
+        document.getElementById('platList').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function loadTaskTypes() {
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_task_types' });
+        const types = res.data.task_types || [];
+        document.getElementById('ttList').innerHTML = types.length === 0
+          ? '<div style="color:var(--text-secondary); font-size:13px;">No task types yet.</div>'
+          : types.map(t => `
+            <div class="row-item">
+              <div>
+                <div style="font-weight:700; font-size:14px;">${escapeHtml(t.name)}</div>
+                <div class="row-sub">Base: ₦${t.base_advertiser_cost} → earner ₦${t.base_earner_reward} • Premium: ₦${t.premium_advertiser_cost} → ₦${t.premium_earner_reward}</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <span class="badge ${t.is_active ? 'green' : 'gray'}">${t.is_active ? 'Active' : 'Disabled'}</span>
+                <button class="btn ${t.is_active ? 'btn-danger' : 'btn-success'}" style="padding:6px 10px; font-size:11px;" onclick="toggleTt('${t.id}', ${!t.is_active})">${t.is_active ? 'Disable' : 'Enable'}</button>
+              </div>
+            </div>`).join('');
+      } catch (err) {
+        document.getElementById('ttList').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    document.getElementById('addPlatBtn').addEventListener('click', async () => {
+      try {
+        await apiClient.request('admin.js', {
+          action: 'add_platform',
+          name: document.getElementById('platName').value,
+          logo_url: document.getElementById('platLogo').value
+        });
+        showToast('Platform added.', 'success');
+        document.getElementById('platName').value = '';
+        document.getElementById('platLogo').value = '';
+        loadPlatforms();
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    window.togglePlat = async function (id, active) {
+      try {
+        await apiClient.request('admin.js', { action: 'update_platform', id, is_active: active });
+        loadPlatforms();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+
+    window.delPlat = async function (id) {
+      if (!confirm('Remove this platform? Existing campaigns will show as "Other".')) return;
+      try {
+        await apiClient.request('admin.js', { action: 'delete_platform', id });
+        showToast('Platform removed.', 'success');
+        loadPlatforms();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+
+    document.getElementById('addTtBtn').addEventListener('click', async () => {
+      try {
+        await apiClient.request('admin.js', {
+          action: 'add_task_type',
+          name: document.getElementById('ttName').value,
+          base_advertiser_cost: Number(document.getElementById('ttBaseCost').value),
+          base_earner_reward: Number(document.getElementById('ttBaseReward').value),
+          premium_advertiser_cost: Number(document.getElementById('ttPremCost').value),
+          premium_earner_reward: Number(document.getElementById('ttPremReward').value)
+        });
+        showToast('Task type added.', 'success');
+        ['ttName','ttBaseCost','ttBaseReward','ttPremCost','ttPremReward'].forEach(i => document.getElementById(i).value = '');
+        loadTaskTypes();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+
+    window.toggleTt = async function (id, active) {
+      try {
+        await apiClient.request('admin.js', { action: 'update_task_type', id, is_active: active });
+        loadTaskTypes();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+  </script>
+</body>
+  </html>
