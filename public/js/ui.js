@@ -1,5 +1,5 @@
 // /public/js/ui.js
-// Core helpers + Theme + Premium chrome (header, bell, dock with logout) + PWA + Push
+// Core helpers + Theme + Premium chrome (header, bell, SMS button, dock) + PWA + Push
 
 const ONESIGNAL_APP_ID = '01a38103-d17e-4257-9af4-558b6500ed44';
 
@@ -9,7 +9,6 @@ const ONESIGNAL_APP_ID = '01a38103-d17e-4257-9af4-558b6500ed44';
   link.rel = 'stylesheet';
   link.href = '/css/themes.css';
   document.head.appendChild(link);
-
   const saved = localStorage.getItem('yolo_theme') || 'dark';
   document.documentElement.setAttribute('data-theme', saved);
 })();
@@ -65,7 +64,7 @@ function showToast(message, type = 'success') {
   setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; setTimeout(() => toast.remove(), 300); }, 3500);
 }
 
-// ---------- PREMIUM CHROME: HEADER + BELL + DOCK ----------
+// ---------- PREMIUM CHROME ----------
 (function injectPremiumChrome() {
   const path = window.location.pathname;
   if (path.includes('receipt.html')) return;
@@ -77,6 +76,8 @@ function showToast(message, type = 'success') {
       .yolo-bell { position: relative; font-size: 19px; line-height: 1; text-decoration: none; margin-left: 12px; padding: 6px; border-radius: 10px; }
       .yolo-bell:active { background: var(--accent-glow); }
       .bell-badge { position: absolute; top: 0px; right: -2px; background: var(--error); color: #fff; border-radius: 10px; font-size: 9px; font-weight: 800; padding: 1px 5px; min-width: 15px; text-align: center; box-shadow: 0 0 8px rgba(239,68,68,.6); display: none; }
+      .yolo-sms { margin-left: 10px; padding: 7px 14px; border-radius: 12px; border: 1px solid var(--accent); background: var(--accent-glow); color: var(--accent); font-weight: 800; font-size: 12px; text-decoration: none; white-space: nowrap; }
+      .yolo-sms:active { transform: scale(.97); }
     `;
     document.head.appendChild(st);
   }
@@ -86,9 +87,7 @@ function showToast(message, type = 'success') {
     header.classList.add('yolo-header');
     header.querySelectorAll('div, a, span').forEach(el => {
       const txt = el.textContent.trim();
-      if (txt.startsWith('YOLOTASK') && txt.length < 40 && el.children.length <= 2) {
-        el.classList.add('yolo-brand');
-      }
+      if (txt.startsWith('YOLOTASK') && txt.length < 40 && el.children.length <= 2) el.classList.add('yolo-brand');
     });
   }
 
@@ -96,7 +95,7 @@ function showToast(message, type = 'success') {
   try { cached = JSON.parse(localStorage.getItem('yolotask_user') || 'null'); } catch (e) {}
   const role = cached && cached.role;
 
-  // Notification bell
+  // Bell
   if (header && role && !header.querySelector('a[href*="notifications"]')) {
     const bell = document.createElement('a');
     bell.href = '/notifications.html';
@@ -111,22 +110,28 @@ function showToast(message, type = 'success') {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ action: 'get_notifications' })
-      })
-        .then(r => r.json())
-        .then(d => {
-          const list = (d && d.data && d.data.notifications) || [];
-          const unread = list.filter(n => !n.is_read).length;
-          const badge = document.getElementById('bellBadge');
-          if (badge && unread > 0) {
-            badge.textContent = unread > 9 ? '9+' : unread;
-            badge.style.display = 'inline-block';
-          }
-        })
-        .catch(() => {});
+      }).then(r => r.json()).then(d => {
+        const list = (d && d.data && d.data.notifications) || [];
+        const unread = list.filter(n => !n.is_read).length;
+        const badge = document.getElementById('bellBadge');
+        if (badge && unread > 0) { badge.textContent = unread > 9 ? '9+' : unread; badge.style.display = 'inline-block'; }
+      }).catch(() => {});
     }
   }
 
-  // Floating dock (with Logout as last item)
+  // SMS button: replaces header Logout for earner/advertiser (dock logout remains)
+  if (header && (role === 'earner' || role === 'advertiser') && !path.includes('/sms.html')) {
+    const smsBtn = document.createElement('a');
+    smsBtn.href = '/sms.html';
+    smsBtn.className = 'yolo-sms';
+    smsBtn.textContent = '📱 SMS';
+    const headerLogout = Array.from(header.querySelectorAll('a, button'))
+      .find(el => el.textContent.trim().toLowerCase() === 'logout');
+    if (headerLogout) headerLogout.replaceWith(smsBtn);
+    else header.appendChild(smsBtn);
+  }
+
+  // Dock
   if (!role) return;
 
   const I = {
@@ -173,16 +178,16 @@ function showToast(message, type = 'success') {
   };
 
   const items = [...(DOCKS[role] || []), LOGOUT_ITEM];
-  if (items.length <= 1) return;
-
-  const nav = document.createElement('nav');
-  nav.className = 'yolo-dock';
-  nav.innerHTML = items.map(it => {
-    const active = !it.logout && it.match.some(m => path.startsWith(m));
-    const extra = it.logout ? ' style="color:var(--error);" onclick="localStorage.clear()"' : '';
-    return `<a href="${it.href}" class="${active ? 'active' : ''}"${extra}>${it.icon}<span>${it.label}</span></a>`;
-  }).join('');
-  document.body.appendChild(nav);
+  if (items.length > 1) {
+    const nav = document.createElement('nav');
+    nav.className = 'yolo-dock';
+    nav.innerHTML = items.map(it => {
+      const active = !it.logout && it.match.some(m => path.startsWith(m));
+      const extra = it.logout ? ' style="color:var(--error);" onclick="localStorage.clear()"' : '';
+      return `<a href="${it.href}" class="${active ? 'active' : ''}"${extra}>${it.icon}<span>${it.label}</span></a>`;
+    }).join('');
+    document.body.appendChild(nav);
+  }
 
   // Theme toggle
   if (!document.getElementById('themeToggleBtn')) {
@@ -196,7 +201,7 @@ function showToast(message, type = 'success') {
   }
 })();
 
-// ---------- PWA: MANIFEST + META ----------
+// ---------- PWA META ----------
 (function injectPwaMeta() {
   if (!document.querySelector('link[rel="manifest"]')) {
     const link = document.createElement('link');
@@ -215,7 +220,6 @@ function showToast(message, type = 'success') {
   }
 })();
 
-// ---------- PWA: SERVICE WORKER (only when push disabled) ----------
 if ('serviceWorker' in navigator && !ONESIGNAL_APP_ID) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
@@ -225,7 +229,7 @@ if ('serviceWorker' in navigator && !ONESIGNAL_APP_ID) {
 window.addEventListener('offline', () => showToast('You are offline. Showing cached content.', 'warning'));
 window.addEventListener('online', () => showToast('Back online!', 'success'));
 
-// ---------- PWA: INSTALL BANNER ----------
+// ---------- INSTALL BANNER ----------
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -261,15 +265,13 @@ function showInstallBanner() {
   });
 }
 
-// ---------- PUSH (OneSignal v16) ----------
+// ---------- PUSH ----------
 (function initPush() {
   if (!ONESIGNAL_APP_ID) return;
-
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   OneSignalDeferred.push(async function (OneSignal) {
     await OneSignal.init({ appId: ONESIGNAL_APP_ID });
   });
-
   const s = document.createElement('script');
   s.src = 'https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js';
   s.defer = true;
