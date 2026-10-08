@@ -40,7 +40,7 @@
       <div class="panel">
         <h3>Quick Actions</h3>
         <div class="quick-grid">
-          <a href="/admin/catalog.html" class="quick-card"><div class="qc-icon">🧩</div><div class="qc-title">Catalog Manager</div><div class="qc-sub" style="font-size:11px; color:var(--text-secondary);">Platforms & task types</div></a>
+          <a href="/admin/catalog.html" class="quick-card"><div class="qc-icon">🧩</div><div class="qc-title">Catalog Manager</div><div style="font-size:11px; color:var(--text-secondary);">Platforms & task types</div></a>
           <a href="/admin/campaigns.html" class="quick-card"><div class="qc-icon">📝</div><div class="qc-title">Review Campaigns</div></a>
           <a href="/admin/escalated.html" class="quick-card"><div class="qc-icon">⚠️</div><div class="qc-title">Escalated Tasks</div></a>
           <a href="/admin/withdrawals.html" class="quick-card"><div class="qc-icon">💸</div><div class="qc-title">Process Payouts</div></a>
@@ -60,6 +60,9 @@
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
       document.getElementById('adminName').textContent = profile.full_name;
+
+      // Silent storage hygiene: purge proof images of decided tasks (auto-approve path)
+      apiClient.request('admin.js', { action: 'purge_decided_proofs' }).catch(() => {});
 
       try {
         const res = await apiClient.request('admin.js', { action: 'get_dashboard_stats' });
