@@ -20,7 +20,9 @@
       .bank-default { background: var(--success-bg); color: var(--success); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; }
       .chip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px; }
       .chip { display: flex; align-items: center; gap: 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 13px; cursor: pointer; }
+      .chip:has(input:disabled) { opacity: .45; cursor: not-allowed; }
       .chip input { width: auto; }
+      .chip input:disabled { cursor: not-allowed; }
       .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 15px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 15px; }
       .switch { position: relative; width: 48px; height: 26px; flex-shrink: 0; }
       .switch input { opacity: 0; width: 0; height: 0; }
@@ -33,19 +35,15 @@
     document.head.appendChild(style);
   }
 
-  // Avatar image fallback: if the picture fails to load, show initials instead of an empty circle
   window.__avatarFallback = function (imgEl, initials) {
     const circle = imgEl.parentNode;
     imgEl.remove();
     circle.textContent = initials;
   };
 
-  let currentProfile = null;
-
   async function init() {
     const profile = await checkAuthAndRedirect();
     if (!profile) return;
-    currentProfile = profile;
 
     const root = document.getElementById('settingsRoot');
     if (!root) return;
@@ -135,11 +133,9 @@
       const reader = new FileReader();
       reader.onload = async () => {
         try {
-          showToast('Uploading avatar...', 'success');
           const res = await apiClient.request('auth.js', { action: 'upload_avatar', dataUrl: reader.result });
-          const newInitials = initialsOf(profile.full_name);
           document.getElementById('avatarCircle').innerHTML =
-            `<img src="${res.data.avatar_url}" alt="avatar" onerror="__avatarFallback(this, '${newInitials}')" />`;
+            `<img src="${res.data.avatar_url}" alt="avatar" onerror="__avatarFallback(this, '${initialsOf(profile.full_name)}')" />`;
           cacheProfile({ avatar_url: res.data.avatar_url });
           showToast('Avatar updated!', 'success');
         } catch (err) { showToast(err.message, 'error'); }
@@ -166,7 +162,17 @@
     });
   }
 
-  // ---------- TASK PREFS ----------
+  // ---------- TASK PREFS (interests capped 3–5) ----------
+  const MAX_INTERESTS = 5;
+
+  function enforceInterestCap() {
+    const boxes = Array.from(document.querySelectorAll('input[name="prefInterest"]'));
+    const checked = boxes.filter(b => b.checked).length;
+    boxes.forEach(b => { if (!b.checked) b.disabled = checked >= MAX_INTERESTS; });
+    const counter = document.getElementById('intCounter');
+    if (counter) counter.textContent = `(${checked}/${MAX_INTERESTS} selected — min 3, max 5)`;
+  }
+
   async function loadTasksTab() {
     const box = document.getElementById('tab-tasks');
     box.innerHTML = '<div class="settings-card">Loading preferences...</div>';
@@ -185,16 +191,15 @@
             <h3 style="color:var(--error); margin-bottom:10px;">No platform data (0 interests, 0 task types)</h3>
             <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">Screenshot this box and send it:</p>
             <div class="diag-box">${escapeHtml(JSON.stringify(d).slice(0, 500))}</div>
-          </div>
-        `;
+          </div>`;
         return;
       }
 
       box.innerHTML = `
         <div class="settings-card">
-          <h3 style="margin-bottom:5px;">My Interests <span style="font-size:12px; color:var(--text-secondary);">(${interests.length} available)</span></h3>
-          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Controls which premium (targeted) campaigns you see. Minimum 3.</p>
-          <div class="chip-grid">
+          <h3 style="margin-bottom:5px;">My Interests <span id="intCounter" style="font-size:12px; color:var(--text-secondary);"></span></h3>
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">Controls which premium (targeted) campaigns you see. Choose 3 to 5.</p>
+          <div class="chip-grid" id="interestGrid">
             ${interests.map(i => `<label class="chip"><input type="checkbox" name="prefInterest" value="${i.id}" ${my_interest_ids.includes(i.id) ? 'checked' : ''} /> ${escapeHtml(i.name)}</label>`).join('')}
           </div>
           <button class="btn btn-primary w-full" id="saveInterestsBtn">Save Interests</button>
@@ -208,6 +213,9 @@
           <button class="btn btn-primary w-full" id="savePrefsBtn">Save Task Preferences</button>
         </div>
       `;
+
+      enforceInterestCap();
+      document.getElementById('interestGrid').addEventListener('change', enforceInterestCap);
 
       document.getElementById('saveInterestsBtn').addEventListener('click', async () => {
         const ids = Array.from(document.querySelectorAll('input[name="prefInterest"]:checked')).map(c => c.value);
@@ -228,10 +236,9 @@
       box.innerHTML = `
         <div class="settings-card" style="border-color: var(--error);">
           <h3 style="color:var(--error); margin-bottom:10px;">Failed to load preferences</h3>
-          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">This is usually a temporary database hiccup — tap your Task Prefs tab again in a moment. Screenshot if it persists:</p>
+          <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">Usually a temporary database hiccup — tap the Task Prefs tab again in a moment.</p>
           <div class="diag-box">${escapeHtml(err.message)}</div>
-        </div>
-      `;
+        </div>`;
     }
   }
 
@@ -245,7 +252,6 @@
         apiClient.request('wallet.js', { action: 'get_bank_accounts' }),
         apiClient.request('wallet.js', { action: 'get_banks' })
       ]);
-
       const accounts = accRes.data.accounts;
       const banks = bankRes.data.banks;
 
@@ -363,7 +369,6 @@
         apiClient.request('campaigns.js', { action: 'get_advertiser_settings' }),
         apiClient.request('campaigns.js', { action: 'get_reference_data' })
       ]);
-
       const s = setRes.data.settings || {};
       const defaults = s.campaign_defaults || {};
       const taskTypes = refRes.data.task_types || [];
@@ -379,7 +384,6 @@
           <label class="field-label">Contact Email</label>
           <input type="email" id="bizEmail" class="settings-input" placeholder="billing@company.com" value="${s.business_contact_email || ''}" />
         </div>
-
         <div class="settings-card">
           <h3 style="margin-bottom:15px;">Task Approval</h3>
           <div class="toggle-row">
@@ -392,13 +396,11 @@
           <label class="field-label">Approval Window (hours, 12–336)</label>
           <input type="number" id="autoHours" class="settings-input" min="12" max="336" value="${s.auto_approve_hours || 48}" />
         </div>
-
         <div class="settings-card">
           <h3 style="margin-bottom:15px;">Alerts</h3>
           <label class="field-label">Low Balance Alert Threshold (₦, blank = off)</label>
           <input type="number" id="lowThreshold" class="settings-input" min="0" placeholder="e.g. 5000" value="${s.low_balance_threshold ?? ''}" />
         </div>
-
         <div class="settings-card">
           <h3 style="margin-bottom:5px;">Campaign Defaults</h3>
           <p style="font-size:13px; color:var(--text-secondary); margin-bottom:15px;">These prefill your campaign creation form.</p>
@@ -416,7 +418,6 @@
             ${interests.map(i => `<label class="chip"><input type="checkbox" name="defInterest" value="${i.id}" ${(defaults.interest_ids || []).includes(i.id) ? 'checked' : ''} /> ${escapeHtml(i.name)}</label>`).join('')}
           </div>
         </div>
-
         <button class="btn btn-primary w-full" id="saveBizBtn">Save Business Settings</button>
       `;
 
@@ -440,9 +441,7 @@
             }
           });
           showToast('Business settings saved!', 'success');
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
+        } catch (err) { showToast(err.message, 'error'); }
         btn.disabled = false; btn.textContent = 'Save Business Settings';
       });
     } catch (err) {
