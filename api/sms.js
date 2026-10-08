@@ -51,15 +51,15 @@ module.exports = async (req, res) => {
       case 'get_services': {
         const s = await getSettings();
         if (!s.enabled) return sendSuccess(res, { enabled: false, services: [] });
-        const { data, error } = await supabaseAdmin.from('sms_services').select('*')
-          .eq('is_active', true).order('name');
+        const { data, error } = await supabaseAdmin.from('sms_services').select('*').eq('is_active', true).order('name');
         if (error) throw error;
         return sendSuccess(res, {
           enabled: true,
           services: (data || []).map(sv => ({
             id: sv.id, name: sv.name, icon: sv.icon,
             price_usd: Number(sv.price_usd),
-            price_ngn: priceNgn(Number(sv.price_usd), s)
+            price_ngn: priceNgn(Number(sv.price_usd), s),
+            price_ready: Number(sv.price_usd) > 0
           }))
         });
       }
@@ -76,7 +76,6 @@ module.exports = async (req, res) => {
         const { serviceId, social_username } = req.body;
         if (!serviceId) return sendError(res, 'VALIDATION_ERROR', 'Service required.', 400);
 
-        // One active order per user
         const { data: active } = await supabaseAdmin.from('sms_verifications').select('id')
           .eq('user_id', profile.id).eq('status', 'ACTIVE').maybeSingle();
         if (active) return sendError(res, 'SMS_ACTIVE_EXISTS', 'You already have a verification in progress.', 400);
@@ -85,10 +84,20 @@ module.exports = async (req, res) => {
           .eq('id', serviceId).eq('is_active', true).maybeSingle();
         if (!service) return sendError(res, 'NOT_FOUND', 'Service not available.', 404);
 
-        const charge = priceNgn(Number(service.price_usd), s);
-        if (charge <= 0) return sendError(res, 'VALIDATION_ERROR', 'Service price not configured.', 400);
+        // LIVE PRICE FALLBACK: stored price 0 → fetch from SMSPool now
+        let priceUsd = Number(service.price_usd);
+        if (!priceUsd || priceUsd <= 0) {
+          priceUsd = await smspool.getServicePrice(service.smspool_service_id);
+          if (priceUsd > 0) {
+            await supabaseAdmin.from('sms_services').update({ price_usd: priceUsd }).eq('id', service.id);
+          }
+        }
+        if (!priceUsd || priceUsd <= 0) {
+          return sendError(res, 'PRICE_NOT_CONFIGURED', 'This service has no price yet. Admin: use "Refresh Prices" or set it manually in SMS Control.', 400);
+        }
 
-        // Debit wallet
+        const charge = priceNgn(priceUsd, s);
+
         const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', profile.id).single();
         if (!wallet || Number(wallet.available_balance) < charge) {
           return sendError(res, 'INSUFFICIENT_FUNDS', `You need ${charge.toLocaleString()} NGN for this verification. Top up first.`, 400);
@@ -98,7 +107,6 @@ module.exports = async (req, res) => {
           .eq('user_id', profile.id).eq('available_balance', wallet.available_balance);
         if (debitErr) throw debitErr;
 
-        // Buy number from SMSPool
         let order;
         try {
           order = await smspool.orderNumber({ serviceId: service.smspool_service_id, tier: s.tier });
@@ -107,10 +115,11 @@ module.exports = async (req, res) => {
           await supabaseAdmin.from('wallet_ledger').insert({
             user_id: profile.id, transaction_type: 'SMS_VERIFICATION', amount: charge,
             direction: 'DEBIT', status: 'COMPLETED', reference: 'SMS-FAILED-ORDER'
-          }).then(() => supabaseAdmin.from('wallet_ledger').insert({
+          });
+          await supabaseAdmin.from('wallet_ledger').insert({
             user_id: profile.id, transaction_type: 'SMS_VERIFICATION_REFUND', amount: charge,
             direction: 'CREDIT', status: 'COMPLETED', reference: 'SMSREF-FAILED-ORDER'
-          }));
+          });
           throw orderErr;
         }
 
@@ -123,7 +132,7 @@ module.exports = async (req, res) => {
             smspool_order_id: order.orderId,
             phone_number: order.number,
             status: 'ACTIVE',
-            cost_usd: Number(service.price_usd),
+            cost_usd: priceUsd,
             charged_ngn: charge
           })
           .select().single();
@@ -151,7 +160,6 @@ module.exports = async (req, res) => {
           return sendSuccess(res, { status: row.status, otp: row.otp, number: row.phone_number, refunded: row.refunded });
         }
 
-        // Local expiry guard
         const ageMin = (Date.now() - new Date(row.created_at).getTime()) / 60000;
         let state = 'WAITING';
         let smsText = '';
@@ -164,7 +172,7 @@ module.exports = async (req, res) => {
             state = st.state;
             smsText = st.smsText;
           } catch (e) {
-            return sendSuccess(res, { status: 'ACTIVE', otp: null, number: row.phone_number }); // transient, keep waiting
+            return sendSuccess(res, { status: 'ACTIVE', otp: null, number: row.phone_number });
           }
         }
 
