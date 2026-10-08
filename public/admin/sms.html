@@ -11,7 +11,6 @@
     .diag-row { font-family: monospace; font-size: 11px; line-height: 1.6; padding: 8px 10px; border-radius: 8px; background: var(--bg-primary); border: 1px solid var(--border); margin-bottom: 6px; word-break: break-all; }
     .diag-ok { border-color: var(--success); color: var(--success); }
     .diag-fail { border-color: var(--error); color: var(--text-secondary); }
-    .price-input { width: 90px; padding: 7px 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -39,15 +38,8 @@
         ⚠️ SMSPool balance is $0.00 — top up your SMSPool account or number orders will fail.
       </div>
 
-      <div class="panel" style="border-color:var(--warning);">
-        <h3>🩺 SMSPool Connection Diagnostics</h3>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Prints SMSPool's exact reply for every endpoint we try.</p>
-        <button class="btn btn-outline" style="padding:9px 18px; font-size:13px;" id="diagBtn">Run Diagnostics</button>
-        <div id="diagBox" style="margin-top:12px;"></div>
-      </div>
-
       <div class="panel">
-        <h3>Settings</h3>
+        <h3>Settings (users see the FULL live SMSPool catalog)</h3>
         <div class="toggle-row">
           <div>
             <div style="font-weight:600; font-size:14px;">SMS Verification Enabled</div>
@@ -63,17 +55,11 @@
         <button class="btn btn-primary" style="padding:10px 20px; font-size:13px;" id="saveSettingsBtn">Save Settings</button>
       </div>
 
-      <div class="panel">
-        <h3>Enabled Services</h3>
-        <div id="svcList"><div class="skeleton skeleton-text"></div></div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
-          <button class="btn btn-outline" style="padding:10px 18px; font-size:13px;" id="syncBtn">🔄 Sync SMSPool Catalog</button>
-          <button class="btn btn-outline" style="padding:10px 18px; font-size:13px;" id="refreshPricesBtn">💲 Refresh Prices</button>
-        </div>
-        <div id="catalogBox" style="display:none; margin-top:14px;">
-          <input type="search" id="catalogSearch" class="f-input" placeholder="Search services (e.g. Telegram)..." />
-          <div id="catalogList" style="max-height:260px; overflow-y:auto;"></div>
-        </div>
+      <div class="panel" style="border-color:var(--warning);">
+        <h3>🩺 SMSPool Connection Diagnostics</h3>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Prints SMSPool's exact reply for every endpoint we use.</p>
+        <button class="btn btn-outline" style="padding:9px 18px; font-size:13px;" id="diagBtn">Run Diagnostics</button>
+        <div id="diagBox" style="margin-top:12px;"></div>
       </div>
 
       <div class="panel">
@@ -87,12 +73,10 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
-    let catalog = [];
-
     (async () => {
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
-      loadBalance(); loadSettings(); loadServices(); loadAudit();
+      loadBalance(); loadSettings(); loadAudit();
     })();
 
     async function loadBalance() {
@@ -108,24 +92,6 @@
         badge.className = 'badge red';
       }
     }
-
-    document.getElementById('diagBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('diagBtn');
-      const box = document.getElementById('diagBox');
-      btn.disabled = true; btn.textContent = 'Probing SMSPool...';
-      box.innerHTML = '';
-      try {
-        const r = await apiClient.request('smsadmin.js', { action: 'debug_smspool' });
-        const report = r.data.report || [];
-        box.innerHTML = report.map(row => `
-          <div class="diag-row ${row.result === 'OK' ? 'diag-ok' : 'diag-fail'}">
-            [${row.result}] ${row.op} ${row.path} → HTTP ${row.http}<br/>${escapeHtml(row.snippet)}
-          </div>`).join('') || '<div class="diag-row">No report returned.</div>';
-      } catch (err) {
-        box.innerHTML = `<div class="diag-row diag-fail">${escapeHtml(err.message || String(err))}</div>`;
-      }
-      btn.disabled = false; btn.textContent = 'Run Diagnostics';
-    });
 
     async function loadSettings() {
       try {
@@ -153,105 +119,23 @@
       } catch (err) { showToast(err.message, 'error'); }
     });
 
-    async function loadServices() {
+    document.getElementById('diagBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('diagBtn');
+      const box = document.getElementById('diagBox');
+      btn.disabled = true; btn.textContent = 'Probing SMSPool...';
+      box.innerHTML = '';
       try {
-        const r = await apiClient.request('smsadmin.js', { action: 'get_services' });
-        const list = r.data.services || [];
-        document.getElementById('svcList').innerHTML = list.length === 0
-          ? '<div style="color:var(--text-secondary); font-size:13px;">No services enabled. Sync the catalog below and add some.</div>'
-          : list.map(s => `
-            <div class="row-item">
-              <div style="flex:1; min-width:0;">
-                <div style="font-weight:700; font-size:14px;">${escapeHtml(s.name)} <span class="row-sub">(SMSPool #${s.smspool_service_id})</span></div>
-                <div class="row-sub">Our cost $${Number(s.price_usd).toFixed(2)} • Users pay cost × markup × rate</div>
-                <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-                  <span style="font-size:12px; color:var(--text-secondary);">Cost USD:</span>
-                  <input type="number" step="0.01" min="0" class="price-input" id="price-${s.id}" value="${Number(s.price_usd).toFixed(2)}" />
-                  <button class="btn btn-outline" style="padding:6px 12px; font-size:11px;" onclick="savePrice('${s.id}')">Save Price</button>
-                  <span class="badge ${s.is_active ? 'green' : 'gray'}">${s.is_active ? 'Live' : 'Off'}</span>
-                  <button class="btn btn-outline" style="padding:6px 10px; font-size:11px;" onclick="toggleSvc('${s.id}', ${!s.is_active})">${s.is_active ? 'Disable' : 'Enable'}</button>
-                  <button class="btn btn-danger" style="padding:6px 10px; font-size:11px;" onclick="delSvc('${s.id}')">Remove</button>
-                </div>
-              </div>
-            </div>`).join('');
+        const r = await apiClient.request('smsadmin.js', { action: 'debug_smspool' });
+        const report = r.data.report || [];
+        box.innerHTML = report.map(row => `
+          <div class="diag-row ${row.result === 'OK' ? 'diag-ok' : 'diag-fail'}">
+            [${row.result}] ${row.op} ${row.path} → HTTP ${row.http}<br/>${escapeHtml(row.snippet)}
+          </div>`).join('') || '<div class="diag-row">No report returned.</div>';
       } catch (err) {
-        document.getElementById('svcList').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+        box.innerHTML = `<div class="diag-row diag-fail">${escapeHtml(err.message || String(err))}</div>`;
       }
-    }
-
-    window.savePrice = async function (id) {
-      const val = Number(document.getElementById('price-' + id).value);
-      if (isNaN(val) || val < 0) { showToast('Invalid price.', 'error'); return; }
-      try {
-        await apiClient.request('smsadmin.js', { action: 'update_service', id, price_usd: val });
-        showToast('Price saved.', 'success');
-        loadServices();
-      } catch (err) { showToast(err.message, 'error'); }
-    };
-
-    window.toggleSvc = async function (id, active) {
-      try {
-        await apiClient.request('smsadmin.js', { action: 'update_service', id, is_active: active });
-        loadServices();
-      } catch (err) { showToast(err.message, 'error'); }
-    };
-
-    window.delSvc = async function (id) {
-      if (!confirm('Remove this service?')) return;
-      try {
-        await apiClient.request('smsadmin.js', { action: 'delete_service', id });
-        loadServices();
-      } catch (err) { showToast(err.message, 'error'); }
-    };
-
-    document.getElementById('refreshPricesBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('refreshPricesBtn');
-      btn.disabled = true; btn.textContent = 'Fetching live prices...';
-      try {
-        const r = await apiClient.request('smsadmin.js', { action: 'refresh_prices' });
-        showToast(r.message || 'Prices refreshed.', 'success');
-        loadServices();
-      } catch (err) { showToast(err.message, 'error'); }
-      btn.disabled = false; btn.textContent = '💲 Refresh Prices';
+      btn.disabled = false; btn.textContent = 'Run Diagnostics';
     });
-
-    document.getElementById('syncBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('syncBtn');
-      btn.disabled = true; btn.textContent = 'Syncing...';
-      try {
-        const r = await apiClient.request('smsadmin.js', { action: 'sync_catalog' });
-        catalog = r.data.catalog || [];
-        document.getElementById('catalogBox').style.display = 'block';
-        renderCatalog('');
-        if (catalog.length === 0) showToast('Catalog empty — run Diagnostics to inspect raw replies.', 'warning');
-      } catch (err) { showToast(err.message, 'error'); }
-      btn.disabled = false; btn.textContent = '🔄 Sync SMSPool Catalog';
-    });
-
-    document.getElementById('catalogSearch').addEventListener('input', e => renderCatalog(e.target.value));
-
-    function renderCatalog(filter) {
-      const f = filter.toLowerCase().trim();
-      const list = catalog.filter(c => !f || c.name.toLowerCase().includes(f)).slice(0, 60);
-      document.getElementById('catalogList').innerHTML = list.length === 0
-        ? '<div style="color:var(--text-secondary); font-size:13px;">No matches.</div>'
-        : list.map(c => `
-          <div class="row-item">
-            <div>
-              <div style="font-weight:600; font-size:13.5px;">${escapeHtml(c.name)}</div>
-              <div class="row-sub">$${Number(c.price_usd).toFixed(2)} • ID ${c.smspool_service_id}</div>
-            </div>
-            <button class="btn btn-success" style="padding:6px 12px; font-size:11px;" onclick="addSvc(${c.smspool_service_id}, '${escapeHtml(c.name).replace(/'/g, "\\'")}', ${c.price_usd})">Enable</button>
-          </div>`).join('');
-    }
-
-    window.addSvc = async function (sid, name, price) {
-      try {
-        const r = await apiClient.request('smsadmin.js', { action: 'add_service', smspool_service_id: sid, name, price_usd: price });
-        showToast(r.message || (name + ' enabled.'), 'success');
-        loadServices();
-      } catch (err) { showToast(err.message, 'error'); }
-    };
 
     async function loadAudit() {
       try {
@@ -259,10 +143,11 @@
         const list = r.data.verifications || [];
         document.getElementById('auditWrap').innerHTML = list.length === 0
           ? '<div style="color:var(--text-secondary); font-size:13px;">No verifications yet.</div>'
-          : `<table class="admin-table"><thead><tr><th>User</th><th>Service</th><th>Number</th><th>Charged</th><th>Status</th><th>When</th></tr></thead><tbody>
+          : `<table class="admin-table"><thead><tr><th>User</th><th>Service</th><th>Country</th><th>Number</th><th>Charged</th><th>Status</th><th>When</th></tr></thead><tbody>
             ${list.map(v => `<tr>
               <td>${escapeHtml(v.user_name)}</td>
               <td>${escapeHtml(v.service_name || '')}</td>
+              <td>${escapeHtml(v.country_name || '')}</td>
               <td style="font-size:12px;">${escapeHtml(v.phone_number || '')}</td>
               <td>${formatCurrency(v.charged_ngn)}${v.refunded ? ' ↩' : ''}</td>
               <td><span class="badge ${v.status === 'VERIFIED' ? 'green' : v.status === 'ACTIVE' ? 'amber' : 'red'}">${v.status}</span></td>
