@@ -7,6 +7,12 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .plat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .plat-opt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-primary); cursor: pointer; font-size: 11px; font-weight: 700; color: var(--text-secondary); transition: .15s; text-align: center; }
+    .plat-opt img { width: 30px; height: 30px; object-fit: contain; border-radius: 8px; }
+    .plat-opt.selected { border-color: var(--accent); background: var(--accent-glow); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  </style>
 </head>
 <body>
   <header class="flex justify-between items-center" style="padding:15px 20px;">
@@ -16,10 +22,13 @@
 
   <main class="container" style="padding:22px 20px 120px; max-width:760px;">
     <div class="panel">
+      <label class="f-label">Platform (where the task happens)</label>
+      <div class="plat-grid" id="platGrid"><div style="font-size:12px; color:var(--text-secondary);">Loading platforms...</div></div>
+
       <label class="f-label">Campaign Title</label>
       <input type="text" id="title" class="f-input" placeholder="e.g. Follow our Instagram page" />
 
-      <label class="f-label">Task Type</label>
+      <label class="f-label">Task Type (the action workers perform)</label>
       <select id="task_type_id" class="f-input"><option value="">Loading...</option></select>
 
       <label class="f-label">Instructions for Workers</label>
@@ -62,7 +71,7 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
-    let realTaskTypes = [];
+    let selectedPlatformId = null; // null = "Other"
 
     (async () => {
       const profile = await checkAuthAndRedirect('advertiser');
@@ -74,13 +83,28 @@
           apiClient.request('campaigns.js', { action: 'get_advertiser_settings' })
         ]);
 
-        realTaskTypes = refRes.data.task_types || [];
+        const taskTypes = refRes.data.task_types || [];
         const interests = refRes.data.interests || [];
+        const platforms = refRes.data.platforms || [];
         const defaults = (setRes.data.settings && setRes.data.settings.campaign_defaults) || {};
 
+        // Platform picker (logo grid + Other)
+        const grid = document.getElementById('platGrid');
+        grid.innerHTML = platforms.map(p => `
+          <div class="plat-opt" data-id="${p.id}" onclick="selectPlatform('${p.id}', this)">
+            <img src="${p.logo_url || '/icons/icon.svg'}" onerror="this.src='/icons/icon.svg'" alt="" />
+            <span>${escapeHtml(p.name)}</span>
+          </div>
+        `).join('') + `
+          <div class="plat-opt selected" data-id="" onclick="selectPlatform(null, this)">
+            <img src="/icons/icon.svg" alt="" />
+            <span>Other</span>
+          </div>`;
+
+        // Task types (+ guaranteed "Other Task" row exists in DB)
         const typeSelect = document.getElementById('task_type_id');
         typeSelect.innerHTML = '<option value="">Select task type...</option>';
-        realTaskTypes.forEach(t => {
+        taskTypes.forEach(t => {
           const opt = document.createElement('option');
           opt.value = t.id;
           opt.textContent = `${t.name} (₦${t.base_advertiser_cost} base / ₦${t.premium_advertiser_cost} premium)`;
@@ -96,10 +120,6 @@
 
         if (defaults.task_type_id) typeSelect.value = defaults.task_type_id;
         if (defaults.is_targeted) document.getElementById('is_targeted').checked = true;
-        (defaults.genders || []).forEach(g => {
-          const cb = document.querySelector(`input[name="gender"][value="${g}"]`);
-          if (cb) cb.checked = true;
-        });
         (defaults.interest_ids || []).forEach(id => {
           const cb = document.querySelector(`input[name="interest"][value="${id}"]`);
           if (cb) cb.checked = true;
@@ -111,12 +131,17 @@
       }
     })();
 
+    window.selectPlatform = function (id, el) {
+      selectedPlatformId = id;
+      document.querySelectorAll('.plat-opt').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+    };
+
     function updateBudget() {
       const typeSelect = document.getElementById('task_type_id');
       const qty = parseInt(document.getElementById('target_quantity').value) || 0;
       const isTargeted = document.getElementById('is_targeted').checked;
       document.getElementById('targetingOptions').style.display = isTargeted ? 'block' : 'none';
-
       if (typeSelect.value && qty > 0) {
         const opt = typeSelect.options[typeSelect.selectedIndex];
         const cost = isTargeted ? parseFloat(opt.dataset.premium) : parseFloat(opt.dataset.base);
@@ -133,7 +158,6 @@
     document.getElementById('submitBtn').addEventListener('click', async () => {
       const btn = document.getElementById('submitBtn');
       btn.disabled = true; btn.textContent = 'Creating...';
-
       const isTargeted = document.getElementById('is_targeted').checked;
       try {
         await apiClient.request('campaigns.js', {
@@ -144,6 +168,7 @@
           destination_link: document.getElementById('destination_link').value,
           is_targeted: isTargeted,
           target_quantity: parseInt(document.getElementById('target_quantity').value),
+          platform_id: selectedPlatformId,
           target_genders: isTargeted ? Array.from(document.querySelectorAll('input[name="gender"]:checked')).map(cb => cb.value) : [],
           target_interest_ids: isTargeted ? Array.from(document.querySelectorAll('input[name="interest"]:checked')).map(cb => cb.value) : []
         });
