@@ -5,6 +5,18 @@ const { getTaskFeed, submitTaskProof, getAdvertiserSubmissions, reviewSubmission
 const { sendNotification } = require('../lib/notifications');
 const { supabaseAdmin } = require('../lib/supabase');
 
+// Deletes the proof image from Storage once a final decision is made
+async function deleteProof(proofUrl) {
+  if (!proofUrl || !proofUrl.includes('/proofs/')) return;
+  const path = decodeURIComponent(proofUrl.split('/proofs/').pop().split('?')[0]);
+  if (!path) return;
+  try {
+    await supabaseAdmin.storage.from('proofs').remove([path]);
+  } catch (e) {
+    console.error('proof delete failed:', e);
+  }
+}
+
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
@@ -38,16 +50,16 @@ module.exports = async (req, res) => {
 
       case 'submit': {
         requireRole(profile, ['earner']);
-        const { taskId, proofUrl } = req.body;
-        if (!taskId || !proofUrl) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
-        await submitTaskProof(profile.id, taskId, proofUrl);
+        const { taskId, proofDataUrl, comment } = req.body;
+        if (!taskId || !proofDataUrl) return sendError(res, 'VALIDATION_ERROR', 'Task and proof image are required.', 400);
+        await submitTaskProof(profile.id, taskId, proofDataUrl, comment);
         return sendSuccess(res, {}, 'Submitted for review.');
       }
 
       case 'get_my_submissions': {
         requireRole(profile, ['earner']);
         const { data: subs, error } = await supabaseAdmin.from('task_submissions')
-          .select('id, campaign_id, proof_url, status, created_at, reviewed_at')
+          .select('id, campaign_id, proof_url, status, created_at, reviewed_at, comment')
           .eq('earner_id', profile.id).order('created_at', { ascending: false }).limit(100);
         if (error) throw error;
         if (!subs || subs.length === 0) return sendSuccess(res, { submissions: [] });
@@ -94,22 +106,30 @@ module.exports = async (req, res) => {
         requireRole(profile, ['advertiser']);
         const { submissionId, reviewAction } = req.body;
         if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Submission ID and Action required.', 400);
+
+        // Grab proof URL before the decision so we can delete the file after
+        const { data: pre } = await supabaseAdmin.from('task_submissions').select('proof_url, earner_id, campaign_id').eq('id', submissionId).single();
+
         const result = await reviewSubmission(profile.id, submissionId, reviewAction);
+
+        // AUTO-DELETE proof image on final decision
+        if (pre && pre.proof_url) deleteProof(pre.proof_url);
+
         try {
-          const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
-          if (sub) {
-            const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', sub.campaign_id).single();
+          if (pre) {
+            const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', pre.campaign_id).single();
             const msg = reviewAction === 'APPROVED' ? `Your submission for "${camp?.title || 'a task'}" was approved.` : 'Your submission was rejected.';
-            await sendNotification(sub.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
+            await sendNotification(pre.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
           }
         } catch (notifErr) { console.error('Notification error:', notifErr); }
+
         return sendSuccess(res, result, `Task ${reviewAction.toLowerCase()} successfully.`);
       }
 
       case 'reviewer_get_queue': {
         requireRole(profile, ['reviewer', 'admin']);
         const { data: submissions, error } = await supabaseAdmin.from('task_submissions')
-          .select('id, campaign_id, earner_id, proof_url, status, created_at, earner:earner_id(full_name, referral_code)')
+          .select('id, campaign_id, earner_id, proof_url, status, created_at, comment, earner:earner_id(full_name, referral_code)')
           .eq('status', 'PENDING_REVIEW').order('created_at', { ascending: false }).limit(100);
         if (error) throw error;
         if (!submissions || submissions.length === 0) return sendSuccess(res, { submissions: [] });
@@ -133,18 +153,24 @@ module.exports = async (req, res) => {
         requireRole(profile, ['reviewer', 'admin']);
         const { submissionId, reviewAction } = req.body;
         if (!submissionId || !reviewAction) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
+
+        const { data: pre } = await supabaseAdmin.from('task_submissions').select('proof_url, earner_id, campaign_id').eq('id', submissionId).single();
+
         const { data, error } = await supabaseAdmin.rpc('process_reviewer_approval', {
           p_submission_id: submissionId, p_reviewer_id: profile.id, p_action: reviewAction
         });
         if (error) throw { code: 'PROCESSING_ERROR', message: error.message, statusCode: 400 };
+
+        if (pre && pre.proof_url) deleteProof(pre.proof_url);
+
         try {
-          const { data: sub } = await supabaseAdmin.from('task_submissions').select('earner_id, campaign_id').eq('id', submissionId).single();
-          if (sub) {
-            const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', sub.campaign_id).single();
+          if (pre) {
+            const { data: camp } = await supabaseAdmin.from('campaigns').select('title').eq('id', pre.campaign_id).single();
             const msg = reviewAction === 'APPROVED' ? `Your task "${camp?.title || 'submission'}" was approved by our review team.` : 'Your task was rejected by our review team.';
-            await sendNotification(sub.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
+            await sendNotification(pre.earner_id, reviewAction === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
           }
         } catch (notifErr) { console.error('Notification error:', notifErr); }
+
         return sendSuccess(res, data, `Task ${reviewAction.toLowerCase()} successfully.`);
       }
 
