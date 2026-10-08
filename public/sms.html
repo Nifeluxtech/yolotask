@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMS Verification - YOLOTASK</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .svc-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 18px 14px; text-align: center; cursor: pointer; transition: .15s; }
+    .svc-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .svc-icon { font-size: 26px; margin-bottom: 8px; }
+    .svc-name { font-weight: 800; font-size: 13px; margin-bottom: 4px; }
+    .svc-price { color: var(--success); font-weight: 800; font-size: 14px; }
+    .session-card { background: var(--bg-secondary); border: 2px solid var(--accent); border-radius: 18px; padding: 22px; margin-bottom: 18px; text-align: center; }
+    .session-card.verified { border-color: var(--success); background: var(--success-bg); }
+    .session-card.failed { border-color: var(--error); background: var(--error-bg); }
+    .big-number { font-size: 26px; font-weight: 900; letter-spacing: 1px; margin: 10px 0; }
+    .otp-box { background: var(--bg-primary); border: 1px dashed var(--accent); border-radius: 12px; padding: 14px; font-size: 28px; font-weight: 900; letter-spacing: 6px; margin: 12px auto; max-width: 260px; }
+    .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 10px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header class="flex justify-between items-center" style="padding:15px 20px;">
+    <a href="javascript:history.back()" style="color:var(--accent); text-decoration:none; font-weight:600;">← Back</a>
+    <div style="font-weight:700; font-size:15px;">SMS Verification</div>
+  </header>
+
+  <main class="container" style="padding:22px 18px 120px; max-width:760px;">
+    <div class="panel" style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-size:13px; color:var(--text-secondary);">Wallet Balance</div>
+      <div style="font-weight:800; color:var(--success); font-size:18px;" id="balLabel">₦0.00</div>
+    </div>
+
+    <div id="sessionArea"></div>
+
+    <h2 style="font-size:18px; margin:6px 0 14px;">Verify a Social Account</h2>
+    <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:14px;">
+      We rent a real phone number for you. Enter it in your social app; the code appears here automatically. Price = SMSPool cost + 50% platform fee. Failed verifications are auto-refunded.
+    </p>
+    <div class="svc-grid" id="svcGrid"><div class="skeleton skeleton-card"></div></div>
+
+    <h2 style="font-size:18px; margin:26px 0 12px;">My Verification History</h2>
+    <div id="histList"><div class="skeleton skeleton-text"></div></div>
+  </main>
+
+  <!-- Start modal -->
+  <div class="modal-overlay" id="startModal">
+    <div class="modal-box">
+      <h3 style="margin-bottom:6px;">Verify <span id="mSvcName"></span></h3>
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">Cost: <strong id="mPrice" style="color:var(--success);"></strong> (debited from wallet)</p>
+      <label class="f-label">Social username / handle (optional, for your records)</label>
+      <input type="text" id="mUsername" class="f-input" placeholder="@yourhandle" />
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button class="btn btn-outline" style="padding:9px 16px; font-size:13px;" onclick="closeStart()">Cancel</button>
+        <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="mStartBtn">Get Number</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    const ICONS = { telegram: '✈️', whatsapp: '💬', instagram: '📸', tiktok: '🎵', youtube: '▶️', x: '✖️', twitter: '🐦', facebook: '📘', snapchat: '👻' };
+    let services = [];
+    let pollTimer = null;
+    let activeId = null;
+    let pendingService = null;
+
+    (async () => {
+      const profile = await checkAuthAndRedirect();
+      if (!profile) return;
+      if (!['earner', 'advertiser'].includes(profile.role)) { window.location.href = '/'; return; }
+      loadBalance();
+      loadServices();
+      loadHistory();
+    })();
+
+    async function loadBalance() {
+      try {
+        const r = await apiClient.request('sms.js', { action: 'get_wallet_balance' });
+        document.getElementById('balLabel').textContent = formatCurrency(r.data.available_balance);
+      } catch (e) {}
+    }
+
+    async function loadServices() {
+      try {
+        const r = await apiClient.request('sms.js', { action: 'get_services' });
+        if (!r.data.enabled) {
+          document.getElementById('svcGrid').innerHTML = '<div class="panel" style="grid-column:1/-1; text-align:center; color:var(--text-secondary);">SMS verification is currently disabled by the platform.</div>';
+          return;
+        }
+        services = r.data.services || [];
+        // resume active session if any
+        const h = await apiClient.request('sms.js', { action: 'get_history' });
+        const active = (h.data.verifications || []).find(v => v.status === 'ACTIVE');
+        if (active) { activeId = active.id; renderSession(active.phone_number, active.service_name, 'ACTIVE', null); startPolling(); }
+
+        document.getElementById('svcGrid').innerHTML = services.length === 0
+          ? '<div class="panel" style="grid-column:1/-1; text-align:center; color:var(--text-secondary);">No services enabled yet.</div>'
+          : services.map(s => `
+            <div class="svc-card" onclick="openStart('${s.id}')">
+              <div class="svc-icon">${ICONS[s.name.toLowerCase()] || '📱'}</div>
+              <div class="svc-name">${escapeHtml(s.name)}</div>
+              <div class="svc-price">${formatCurrency(s.price_ngn)}</div>
+            </div>`).join('');
+      } catch (err) {
+        document.getElementById('svcGrid').innerHTML = `<div class="panel" style="grid-column:1/-1; color:var(--error);">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function loadHistory() {
+      try {
+        const r = await apiClient.request('sms.js', { action: 'get_history' });
+        const list = r.data.verifications || [];
+        document.getElementById('histList').innerHTML = list.length === 0
+          ? '<div class="panel" style="color:var(--text-secondary); font-size:13px;">No verifications yet.</div>'
+          : list.map(v => `
+            <div class="row-item">
+              <div>
+                <div style="font-weight:700; font-size:14px;">${ICONS[(v.service_name || '').toLowerCase()] || '📱'} ${escapeHtml(v.service_name || 'Service')} ${v.social_username ? '• ' + escapeHtml(v.social_username) : ''}</div>
+                <div class="row-sub">${formatDate(v.created_at)} • ${formatCurrency(v.charged_ngn)}${v.refunded ? ' (refunded)' : ''}</div>
+              </div>
+              <span class="badge ${v.status === 'VERIFIED' ? 'green' : v.status === 'ACTIVE' ? 'amber' : 'red'}">${v.status}</span>
+            </div>`).join('');
+      } catch (e) {}
+    }
+
+    window.openStart = function (id) {
+      pendingService = services.find(s => s.id === id);
+      if (!pendingService) return;
+      document.getElementById('mSvcName').textContent = pendingService.name;
+      document.getElementById('mPrice').textContent = formatCurrency(pendingService.price_ngn);
+      document.getElementById('mUsername').value = '';
+      document.getElementById('startModal').classList.add('active');
+    };
+    window.closeStart = function () { document.getElementById('startModal').classList.remove('active'); pendingService = null; };
+
+    document.getElementById('mStartBtn').addEventListener('click', async () => {
+      if (!pendingService) return;
+      const btn = document.getElementById('mStartBtn');
+      btn.disabled = true; btn.textContent = 'Buying number...';
+      try {
+        const r = await apiClient.request('sms.js', {
+          action: 'start_verification',
+          serviceId: pendingService.id,
+          social_username: document.getElementById('mUsername').value
+        });
+        activeId = r.data.verification.id;
+        closeStart();
+        loadBalance();
+        renderSession(r.data.verification.number, r.data.verification.service_name, 'ACTIVE', null);
+        startPolling();
+        showToast(r.message || 'Number assigned.', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+      btn.disabled = false; btn.textContent = 'Get Number';
+    });
+
+    function renderSession(number, serviceName, status, otp) {
+      const area = document.getElementById('sessionArea');
+      if (status === 'ACTIVE') {
+        area.innerHTML = `
+          <div class="session-card">
+            <div style="font-size:13px; color:var(--text-secondary);">Your rented ${escapeHtml(serviceName)} number</div>
+            <div class="big-number" id="sessNumber">${escapeHtml(number || '')}</div>
+            <button class="btn btn-outline" style="padding:7px 14px; font-size:12px; margin-bottom:12px;" onclick="copyNumber()">Copy Number</button>
+            <div class="spinner"></div>
+            <div style="font-size:13px; color:var(--text-secondary);">Enter this number in your ${escapeHtml(serviceName)} app.<br/>Waiting for the verification code...</div>
+            <button class="btn btn-danger" style="padding:8px 16px; font-size:12px; margin-top:14px;" onclick="cancelSession()">Cancel & Refund</button>
+          </div>`;
+      } else if (status === 'VERIFIED') {
+        stopPolling();
+        area.innerHTML = `
+          <div class="session-card verified">
+            <div style="font-size:22px;">✅</div>
+            <div style="font-weight:900; font-size:17px; color:var(--success); margin:6px 0;">Verified!</div>
+            <div style="font-size:13px; color:var(--text-secondary);">Your ${escapeHtml(serviceName)} code:</div>
+            <div class="otp-box" id="otpBox">${escapeHtml(otp || '')}</div>
+            <button class="btn btn-primary" style="padding:9px 18px; font-size:13px;" onclick="copyOtp()">Copy Code</button>
+          </div>`;
+        loadHistory(); loadBalance();
+      } else {
+        stopPolling();
+        area.innerHTML = `
+          <div class="session-card failed">
+            <div style="font-size:22px;">❌</div>
+            <div style="font-weight:900; font-size:16px; color:var(--error); margin:6px 0;">Verification failed</div>
+            <div style="font-size:13px; color:var(--text-secondary);">No code was received. Your wallet has been refunded in full.</div>
+          </div>`;
+        loadHistory(); loadBalance();
+      }
+    }
+
+    window.copyNumber = () => {
+      const n = document.getElementById('sessNumber')?.textContent || '';
+      navigator.clipboard?.writeText(n).then(() => showToast('Number copied!', 'success')).catch(() => showToast(n, 'warning'));
+    };
+    window.copyOtp = () => {
+      const o = document.getElementById('otpBox')?.textContent || '';
+      navigator.clipboard?.writeText(o).then(() => showToast('Code copied!', 'success')).catch(() => showToast(o, 'warning'));
+    };
+
+    window.cancelSession = async function () {
+      if (!activeId || !confirm('Cancel this verification and refund your wallet?')) return;
+      try {
+        await apiClient.request('sms.js', { action: 'cancel_verification', verificationId: activeId });
+        showToast('Cancelled and refunded.', 'success');
+        stopPolling();
+        activeId = null;
+        document.getElementById('sessionArea').innerHTML = '';
+        loadHistory(); loadBalance();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(async () => {
+        if (!activeId) return stopPolling();
+        try {
+          const r = await apiClient.request('sms.js', { action: 'poll_status', verificationId: activeId });
+          const d = r.data;
+          if (d.status === 'VERIFIED') {
+            const svc = document.getElementById('sessNumber') ? 'session' : '';
+            renderSession(d.number, (services.find(s => s.id === activeId) || {}).name || 'Social', 'VERIFIED', d.otp);
+            // service name for verified card:
+            document.querySelector('.session-card.verified .otp-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            activeId = null;
+          } else if (d.status === 'FAILED' || d.status === 'CANCELLED') {
+            renderSession(d.number, '', 'FAILED', null);
+            activeId = null;
+          }
+        } catch (e) { /* keep polling */ }
+      }, 4000);
+    }
+    function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+  </script>
+</body>
+</html>
