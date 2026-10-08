@@ -7,12 +7,17 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .proof-img { width: 110px; height: 110px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); cursor: pointer; background: var(--bg-primary); }
+    .comment-box { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--text-secondary); margin-top: 10px; white-space: pre-wrap; }
+  </style>
 </head>
 <body>
   <div class="admin-layout">
     <aside class="admin-sidebar">
       <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/catalog.html">🧩 Catalog</a>
       <a href="/admin/leaders.html">🏆 Leader Console</a>
       <a href="/admin/campaigns.html">📝 Campaigns</a>
       <a href="/admin/escalated.html" class="active">⚠️ Escalated</a>
@@ -28,8 +33,7 @@
         <div class="page-title">Escalated Tasks</div>
         <span class="badge cyan" id="countBadge">0</span>
       </header>
-      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Tasks the advertiser ignored past their approval window. Verify the proof manually.</p>
-
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Tasks advertisers ignored past their approval window. Verify the proof manually. Proof images auto-delete after decision.</p>
       <div id="list"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
     </main>
   </div>
@@ -65,10 +69,14 @@
               </div>
               <span class="badge amber">ESCALATED</span>
             </div>
-            <div style="background:var(--bg-primary); padding:12px; border-radius:10px; margin-bottom:14px; word-break:break-all;">
-              <a href="${escapeHtml(t.proof_url)}" target="_blank" style="color:var(--accent); text-decoration:none; font-size:13px;">${escapeHtml(t.proof_url)}</a>
+            <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+              ${t.proof_url ? `<a href="${escapeHtml(t.proof_url)}" target="_blank"><img class="proof-img" src="${escapeHtml(t.proof_url)}" alt="proof" /></a>` : '<div style="font-size:12px; color:var(--text-secondary);">No image</div>'}
+              <div style="flex:1; min-width:200px;">
+                <div style="font-size:12px; color:var(--text-secondary); margin-bottom:4px;">Tap image to view full size</div>
+                ${t.comment ? `<div class="comment-box"><strong style="color:var(--text-primary);">Worker's note:</strong><br/>${escapeHtml(t.comment)}</div>` : ''}
+              </div>
             </div>
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
               <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="process('${t.id}','REJECTED')">Reject (Refund)</button>
               <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="process('${t.id}','APPROVED')">Approve & Pay</button>
             </div>
@@ -83,7 +91,7 @@
       if (!confirm(reviewAction === 'APPROVED' ? 'Pay the worker from the advertiser locked funds?' : 'Reject and return funds to advertiser?')) return;
       try {
         await apiClient.request('tasks.js', { action: 'reviewer_process', submissionId, reviewAction });
-        showToast(`Task ${reviewAction.toLowerCase()}.`, 'success');
+        showToast(`Task ${reviewAction.toLowerCase()}. Proof image deleted.`, 'success');
         document.getElementById(`task-${submissionId}`)?.remove();
       } catch (err) { showToast(err.message, 'error'); }
     };
