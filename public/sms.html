@@ -8,12 +8,11 @@
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
   <style>
-    .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-    .svc-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 18px 14px; text-align: center; cursor: pointer; transition: .15s; }
+    .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+    .svc-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 16px 12px; text-align: center; cursor: pointer; transition: .15s; }
     .svc-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-    .svc-icon { font-size: 26px; margin-bottom: 8px; }
-    .svc-name { font-weight: 800; font-size: 13px; margin-bottom: 4px; }
-    .svc-price { color: var(--success); font-weight: 800; font-size: 14px; }
+    .svc-icon { font-size: 24px; margin-bottom: 6px; }
+    .svc-name { font-weight: 800; font-size: 12.5px; }
     .session-card { background: var(--bg-secondary); border: 2px solid var(--accent); border-radius: 18px; padding: 22px; margin-bottom: 18px; text-align: center; }
     .session-card.verified { border-color: var(--success); background: var(--success-bg); }
     .session-card.failed { border-color: var(--error); background: var(--error-bg); }
@@ -21,6 +20,7 @@
     .otp-box { background: var(--bg-primary); border: 1px dashed var(--accent); border-radius: 12px; padding: 14px; font-size: 28px; font-weight: 900; letter-spacing: 6px; margin: 12px auto; max-width: 260px; }
     .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 10px auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .country-select { width: 100%; padding: 13px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; color: var(--text-primary); font-size: 14px; margin-bottom: 14px; }
   </style>
 </head>
 <body>
@@ -37,26 +37,33 @@
 
     <div id="sessionArea"></div>
 
-    <h2 style="font-size:18px; margin:6px 0 14px;">Verify a Social Account</h2>
+    <h2 style="font-size:18px; margin:6px 0 12px;">Verify a Social Account</h2>
     <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:14px;">
-      We rent a real phone number for you. Enter it in your social app; the code appears here automatically. Price = SMSPool cost + 50% platform fee. Failed verifications are auto-refunded.
+      1️⃣ Choose country → 2️⃣ choose service → we rent a real number and show you the code automatically.
+      Price = live pool cost + 50% platform fee. Failures auto-refund.
     </p>
+
+    <select class="country-select" id="countrySelect">
+      <option value="">Loading countries…</option>
+    </select>
+
     <div class="svc-grid" id="svcGrid"><div class="skeleton skeleton-card"></div></div>
 
     <h2 style="font-size:18px; margin:26px 0 12px;">My Verification History</h2>
     <div id="histList"><div class="skeleton skeleton-text"></div></div>
   </main>
 
-  <!-- Start modal -->
+  <!-- Start modal with LIVE quote -->
   <div class="modal-overlay" id="startModal">
     <div class="modal-box">
       <h3 style="margin-bottom:6px;">Verify <span id="mSvcName"></span></h3>
-      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">Cost: <strong id="mPrice" style="color:var(--success);"></strong> (debited from wallet)</p>
-      <label class="f-label">Social username / handle (optional, for your records)</label>
+      <div style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">Country: <strong id="mCountry" style="color:var(--text-primary);"></strong></div>
+      <p style="font-size:14px; margin-bottom:14px;">Live price: <strong id="mPrice" style="color:var(--success);">fetching…</strong></p>
+      <label class="f-label">Social username / handle (optional)</label>
       <input type="text" id="mUsername" class="f-input" placeholder="@yourhandle" />
       <div style="display:flex; gap:10px; justify-content:flex-end;">
         <button class="btn btn-outline" style="padding:9px 16px; font-size:13px;" onclick="closeStart()">Cancel</button>
-        <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="mStartBtn">Get Number</button>
+        <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="mStartBtn" disabled>Get Number</button>
       </div>
     </div>
   </div>
@@ -67,15 +74,18 @@
   <script>
     const ICONS = { telegram: '✈️', whatsapp: '💬', instagram: '📸', tiktok: '🎵', youtube: '▶️', x: '✖️', twitter: '🐦', facebook: '📘', snapchat: '👻' };
     let services = [];
+    let countries = [];
     let pollTimer = null;
     let activeId = null;
     let pendingService = null;
+    let pendingQuote = null;
 
     (async () => {
       const profile = await checkAuthAndRedirect();
       if (!profile) return;
       if (!['earner', 'advertiser'].includes(profile.role)) { window.location.href = '/'; return; }
       loadBalance();
+      loadCountries();
       loadServices();
       loadHistory();
     })();
@@ -87,6 +97,18 @@
       } catch (e) {}
     }
 
+    async function loadCountries() {
+      const sel = document.getElementById('countrySelect');
+      try {
+        const r = await apiClient.request('sms.js', { action: 'get_countries' });
+        countries = r.data.countries || [];
+        sel.innerHTML = '<option value="">— Select country —</option>' +
+          countries.map(c => `<option value="${c.id}">${escapeHtml(c.name)}${c.short ? ' (' + escapeHtml(c.short) + ')' : ''}</option>`).join('');
+      } catch (err) {
+        sel.innerHTML = `<option value="">Countries failed: ${escapeHtml(err.message).slice(0, 40)}</option>`;
+      }
+    }
+
     async function loadServices() {
       try {
         const r = await apiClient.request('sms.js', { action: 'get_services' });
@@ -95,10 +117,10 @@
           return;
         }
         services = r.data.services || [];
-        // resume active session if any
+
         const h = await apiClient.request('sms.js', { action: 'get_history' });
         const active = (h.data.verifications || []).find(v => v.status === 'ACTIVE');
-        if (active) { activeId = active.id; renderSession(active.phone_number, active.service_name, 'ACTIVE', null); startPolling(); }
+        if (active) { activeId = active.id; renderSession(active.phone_number, active.service_name, active.country_name, 'ACTIVE', null); startPolling(); }
 
         document.getElementById('svcGrid').innerHTML = services.length === 0
           ? '<div class="panel" style="grid-column:1/-1; text-align:center; color:var(--text-secondary);">No services enabled yet.</div>'
@@ -106,7 +128,6 @@
             <div class="svc-card" onclick="openStart('${s.id}')">
               <div class="svc-icon">${ICONS[s.name.toLowerCase()] || '📱'}</div>
               <div class="svc-name">${escapeHtml(s.name)}</div>
-              <div class="svc-price">${formatCurrency(s.price_ngn)}</div>
             </div>`).join('');
       } catch (err) {
         document.getElementById('svcGrid').innerHTML = `<div class="panel" style="grid-column:1/-1; color:var(--error);">${escapeHtml(err.message)}</div>`;
@@ -122,38 +143,55 @@
           : list.map(v => `
             <div class="row-item">
               <div>
-                <div style="font-weight:700; font-size:14px;">${ICONS[(v.service_name || '').toLowerCase()] || '📱'} ${escapeHtml(v.service_name || 'Service')} ${v.social_username ? '• ' + escapeHtml(v.social_username) : ''}</div>
-                <div class="row-sub">${formatDate(v.created_at)} • ${formatCurrency(v.charged_ngn)}${v.refunded ? ' (refunded)' : ''}</div>
+                <div style="font-weight:700; font-size:14px;">${ICONS[(v.service_name || '').toLowerCase()] || '📱'} ${escapeHtml(v.service_name || 'Service')} ${v.country_name ? '• ' + escapeHtml(v.country_name) : ''}</div>
+                <div class="row-sub">${formatDate(v.created_at)} • ${formatCurrency(v.charged_ngn)}${v.refunded ? ' (refunded)' : ''}${v.social_username ? ' • ' + escapeHtml(v.social_username) : ''}</div>
               </div>
               <span class="badge ${v.status === 'VERIFIED' ? 'green' : v.status === 'ACTIVE' ? 'amber' : 'red'}">${v.status}</span>
             </div>`).join('');
       } catch (e) {}
     }
 
-    window.openStart = function (id) {
+    window.openStart = async function (id) {
+      const countryId = document.getElementById('countrySelect').value;
+      if (!countryId) { showToast('Select a country first.', 'error'); return; }
       pendingService = services.find(s => s.id === id);
       if (!pendingService) return;
+
       document.getElementById('mSvcName').textContent = pendingService.name;
-      document.getElementById('mPrice').textContent = formatCurrency(pendingService.price_ngn);
+      document.getElementById('mCountry').textContent = document.getElementById('countrySelect').selectedOptions[0]?.textContent || '';
+      document.getElementById('mPrice').textContent = 'fetching…';
+      document.getElementById('mStartBtn').disabled = true;
       document.getElementById('mUsername').value = '';
       document.getElementById('startModal').classList.add('active');
+
+      try {
+        const q = await apiClient.request('sms.js', { action: 'get_quote', serviceId: id, countryId });
+        pendingQuote = q.data;
+        document.getElementById('mPrice').textContent = `${formatCurrency(q.data.price_ngn)}  (cost $${Number(q.data.price_usd).toFixed(2)})`;
+        document.getElementById('mStartBtn').disabled = false;
+      } catch (err) {
+        document.getElementById('mPrice').textContent = err.message;
+        pendingQuote = null;
+      }
     };
-    window.closeStart = function () { document.getElementById('startModal').classList.remove('active'); pendingService = null; };
+    window.closeStart = function () { document.getElementById('startModal').classList.remove('active'); pendingService = null; pendingQuote = null; };
 
     document.getElementById('mStartBtn').addEventListener('click', async () => {
-      if (!pendingService) return;
+      if (!pendingService || !pendingQuote) return;
       const btn = document.getElementById('mStartBtn');
       btn.disabled = true; btn.textContent = 'Buying number...';
       try {
         const r = await apiClient.request('sms.js', {
           action: 'start_verification',
           serviceId: pendingService.id,
+          countryId: document.getElementById('countrySelect').value,
+          countryName: document.getElementById('countrySelect').selectedOptions[0]?.textContent || '',
           social_username: document.getElementById('mUsername').value
         });
         activeId = r.data.verification.id;
         closeStart();
         loadBalance();
-        renderSession(r.data.verification.number, r.data.verification.service_name, 'ACTIVE', null);
+        renderSession(r.data.verification.number, r.data.verification.service_name, r.data.verification.country_name, 'ACTIVE', null);
         startPolling();
         showToast(r.message || 'Number assigned.', 'success');
       } catch (err) {
@@ -162,12 +200,12 @@
       btn.disabled = false; btn.textContent = 'Get Number';
     });
 
-    function renderSession(number, serviceName, status, otp) {
+    function renderSession(number, serviceName, countryName, status, otp) {
       const area = document.getElementById('sessionArea');
       if (status === 'ACTIVE') {
         area.innerHTML = `
           <div class="session-card">
-            <div style="font-size:13px; color:var(--text-secondary);">Your rented ${escapeHtml(serviceName)} number</div>
+            <div style="font-size:13px; color:var(--text-secondary);">Your rented ${escapeHtml(serviceName)} number (${escapeHtml(countryName || '')})</div>
             <div class="big-number" id="sessNumber">${escapeHtml(number || '')}</div>
             <button class="btn btn-outline" style="padding:7px 14px; font-size:12px; margin-bottom:12px;" onclick="copyNumber()">Copy Number</button>
             <div class="spinner"></div>
@@ -198,7 +236,7 @@
     }
 
     window.copyNumber = () => {
-      const n = document.getElementById('sessNumber')?.textContent || '';
+      const n = (document.getElementById('sessNumber')?.textContent || '').replace(/\D/g, '');
       navigator.clipboard?.writeText(n).then(() => showToast('Number copied!', 'success')).catch(() => showToast(n, 'warning'));
     };
     window.copyOtp = () => {
@@ -226,19 +264,27 @@
           const r = await apiClient.request('sms.js', { action: 'poll_status', verificationId: activeId });
           const d = r.data;
           if (d.status === 'VERIFIED') {
-            const svc = document.getElementById('sessNumber') ? 'session' : '';
-            renderSession(d.number, (services.find(s => s.id === activeId) || {}).name || 'Social', 'VERIFIED', d.otp);
-            // service name for verified card:
-            document.querySelector('.session-card.verified .otp-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const name = pendingService ? pendingService.name : (document.querySelector('.session-card .big-number') ? '' : '');
+            renderSession(d.number, (document.getElementById('sessNumber') ? currentSessionName : ''), currentSessionCountry, 'VERIFIED', d.otp);
             activeId = null;
           } else if (d.status === 'FAILED' || d.status === 'CANCELLED') {
-            renderSession(d.number, '', 'FAILED', null);
+            renderSession(d.number, '', '', 'FAILED', null);
             activeId = null;
           }
         } catch (e) { /* keep polling */ }
       }, 4000);
     }
     function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    // track current session labels for re-render
+    let currentSessionName = '';
+    let currentSessionCountry = '';
+    const _origRender = renderSession;
+    renderSession = function (number, serviceName, countryName, status, otp) {
+      if (serviceName) currentSessionName = serviceName;
+      if (countryName) currentSessionCountry = countryName;
+      _origRender(number, currentSessionName, currentSessionCountry, status, otp);
+    };
   </script>
 </body>
 </html>
