@@ -25,21 +25,15 @@ module.exports = async (req, res) => {
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
     switch (action) {
-      // ---------- PUBLIC ----------
       case 'refresh_session': {
         const { refresh_token } = req.body;
         if (!refresh_token) return sendError(res, 'VALIDATION_ERROR', 'Refresh token required.', 400);
-
         const resp = await fetch(`${process.env.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: process.env.SUPABASE_SERVICE_ROLE_KEY
-          },
+          headers: { 'Content-Type': 'application/json', apikey: process.env.SUPABASE_SERVICE_ROLE_KEY },
           body: JSON.stringify({ refresh_token })
         });
         const session = await resp.json();
-
         if (!resp.ok || !session || !session.access_token) {
           return sendError(res, 'REFRESH_FAILED', 'Session expired. Please log in again.', 401);
         }
@@ -72,8 +66,8 @@ module.exports = async (req, res) => {
 
         const allowedRoles = ['earner', 'advertiser'];
         const finalRole = allowedRoles.includes(role) ? role : 'earner';
-        if (finalRole === 'earner' && (!interests || !Array.isArray(interests) || interests.length < 3)) {
-          return sendError(res, 'VALIDATION_ERROR', 'Select at least 3 interests.', 400);
+        if (finalRole === 'earner' && (!interests || !Array.isArray(interests) || interests.length < 3 || interests.length > 5)) {
+          return sendError(res, 'VALIDATION_ERROR', 'Select between 3 and 5 interests.', 400);
         }
 
         let validReferralCode = null;
@@ -86,7 +80,7 @@ module.exports = async (req, res) => {
           email, password, email_confirm: true,
           user_metadata: {
             full_name, gender: gender || null, role: finalRole,
-            interests: finalRole === 'earner' && interests ? interests.join(',') : null,
+            interests: finalRole === 'earner' && interests ? interests.slice(0, 5).join(',') : null,
             referral_code: validReferralCode
           }
         });
@@ -112,7 +106,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Reset link sent.');
       }
 
-      // ---------- AUTHENTICATED ----------
       case 'get-session': {
         const { user, profile } = await getAuthenticatedUser(req);
         return sendSuccess(res, { profile: { ...profile, email: user.email, email_verified: !!user.email_confirmed_at } });
@@ -205,7 +198,7 @@ module.exports = async (req, res) => {
           .map(t => ({ id: t.id, name: t.name }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
         return sendSuccess(res, {
-          version: 'auth-v7',
+          version: 'auth-v8',
           interests, task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
           my_hidden_task_ids: (hiddenRes && hiddenRes.data && hiddenRes.data.hidden_task_types) || []
@@ -216,14 +209,16 @@ module.exports = async (req, res) => {
         const { profile } = await getAuthenticatedUser(req);
         requireRole(profile, ['earner']);
         const { interest_ids } = req.body;
-        if (!Array.isArray(interest_ids) || interest_ids.length < 3) return sendError(res, 'VALIDATION_ERROR', 'Select at least 3 interests.', 400);
+        if (!Array.isArray(interest_ids) || interest_ids.length < 3 || interest_ids.length > 5) {
+          return sendError(res, 'VALIDATION_ERROR', 'Select between 3 and 5 interests.', 400);
+        }
         const { data: valid, error: vErr } = await q(() => supabaseAdmin.from('interests').select('id').in('id', interest_ids));
         if (vErr) throw vErr;
         if (!valid || valid.length !== interest_ids.length) return sendError(res, 'VALIDATION_ERROR', 'One or more interests are invalid.', 400);
         await supabaseAdmin.from('user_interests').delete().eq('user_id', profile.id);
         const { error } = await supabaseAdmin.from('user_interests').insert(interest_ids.map(id => ({ user_id: profile.id, interest_id: id })));
         if (error) throw error;
-        return sendSuccess(res, {}, 'Interests updated. Your task feed will now match.');
+        return sendSuccess(res, {}, 'Interests updated (3–5 allowed). Your task feed will now match.');
       }
 
       case 'update_task_prefs': {
