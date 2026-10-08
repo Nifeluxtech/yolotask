@@ -55,13 +55,29 @@ module.exports = async (req, res) => {
         if (error) throw error;
         return sendSuccess(res, {
           enabled: true,
-          services: (data || []).map(sv => ({
-            id: sv.id, name: sv.name, icon: sv.icon,
-            price_usd: Number(sv.price_usd),
-            price_ngn: priceNgn(Number(sv.price_usd), s),
-            price_ready: Number(sv.price_usd) > 0
-          }))
+          services: (data || []).map(sv => ({ id: sv.id, smspool_id: sv.smspool_service_id, name: sv.name, icon: sv.icon }))
         });
+      }
+
+      case 'get_countries': {
+        const countries = await smspool.getCountries();
+        return sendSuccess(res, { countries });
+      }
+
+      case 'get_quote': {
+        const s = await getSettings();
+        if (!s.enabled) return sendError(res, 'SMS_DISABLED', 'SMS verification is currently disabled.', 403);
+        const { serviceId, countryId } = req.body;
+        if (!serviceId || !countryId) return sendError(res, 'VALIDATION_ERROR', 'Service and country are required.', 400);
+
+        const { data: service } = await supabaseAdmin.from('sms_services').select('*').eq('id', serviceId).eq('is_active', true).maybeSingle();
+        if (!service) return sendError(res, 'NOT_FOUND', 'Service not available.', 404);
+
+        const priceUsd = await smspool.getQuote(service.smspool_service_id, countryId);
+        if (!priceUsd) {
+          return sendError(res, 'NO_POOLS', 'No number pools available for this service + country right now. Try another country.', 400);
+        }
+        return sendSuccess(res, { price_usd: priceUsd, price_ngn: priceNgn(priceUsd, s) });
       }
 
       case 'get_wallet_balance': {
@@ -73,8 +89,8 @@ module.exports = async (req, res) => {
         const s = await getSettings();
         if (!s.enabled) return sendError(res, 'SMS_DISABLED', 'SMS verification is currently disabled.', 403);
 
-        const { serviceId, social_username } = req.body;
-        if (!serviceId) return sendError(res, 'VALIDATION_ERROR', 'Service required.', 400);
+        const { serviceId, countryId, countryName, social_username } = req.body;
+        if (!serviceId || !countryId) return sendError(res, 'VALIDATION_ERROR', 'Service and country are required.', 400);
 
         const { data: active } = await supabaseAdmin.from('sms_verifications').select('id')
           .eq('user_id', profile.id).eq('status', 'ACTIVE').maybeSingle();
@@ -84,16 +100,11 @@ module.exports = async (req, res) => {
           .eq('id', serviceId).eq('is_active', true).maybeSingle();
         if (!service) return sendError(res, 'NOT_FOUND', 'Service not available.', 404);
 
-        // LIVE PRICE FALLBACK: stored price 0 → fetch from SMSPool now
-        let priceUsd = Number(service.price_usd);
-        if (!priceUsd || priceUsd <= 0) {
-          priceUsd = await smspool.getServicePrice(service.smspool_service_id);
-          if (priceUsd > 0) {
-            await supabaseAdmin.from('sms_services').update({ price_usd: priceUsd }).eq('id', service.id);
-          }
-        }
-        if (!priceUsd || priceUsd <= 0) {
-          return sendError(res, 'PRICE_NOT_CONFIGURED', 'This service has no price yet. Admin: use "Refresh Prices" or set it manually in SMS Control.', 400);
+        // LIVE QUOTE for the chosen country (stored price only as last-resort fallback)
+        let priceUsd = await smspool.getQuote(service.smspool_service_id, countryId);
+        if (!priceUsd) priceUsd = Number(service.price_usd) || 0;
+        if (!priceUsd) {
+          return sendError(res, 'NO_POOLS', 'No pools/price available for this service + country. Try another country.', 400);
         }
 
         const charge = priceNgn(priceUsd, s);
@@ -109,7 +120,7 @@ module.exports = async (req, res) => {
 
         let order;
         try {
-          order = await smspool.orderNumber({ serviceId: service.smspool_service_id, tier: s.tier });
+          order = await smspool.orderNumber({ serviceId: service.smspool_service_id, countryId });
         } catch (orderErr) {
           await refundUser(profile.id, charge, 'FAILED-ORDER');
           await supabaseAdmin.from('wallet_ledger').insert({
@@ -128,6 +139,8 @@ module.exports = async (req, res) => {
             user_id: profile.id,
             service_id: service.id,
             service_name: service.name,
+            country_id: Number(countryId),
+            country_name: String(countryName || '').slice(0, 60) || null,
             social_username: (social_username || '').trim().slice(0, 80) || null,
             smspool_order_id: order.orderId,
             phone_number: order.number,
@@ -144,7 +157,10 @@ module.exports = async (req, res) => {
         });
 
         return sendSuccess(res, {
-          verification: { id: row.id, number: row.number, service_name: row.service_name, charged_ngn: charge, status: 'ACTIVE' }
+          verification: {
+            id: row.id, number: row.number, service_name: row.service_name,
+            country_name: row.country_name, charged_ngn: charge, status: 'ACTIVE'
+          }
         }, `Number assigned. ${charge.toLocaleString()} NGN charged.`);
       }
 
@@ -180,7 +196,7 @@ module.exports = async (req, res) => {
           const otp = smspool.extractOtp(smsText) || smsText.slice(0, 10);
           await supabaseAdmin.from('sms_verifications')
             .update({ status: 'VERIFIED', otp, updated_at: new Date().toISOString() }).eq('id', row.id);
-          await sendNotification(profile.id, 'SMS Verified!', `Your ${row.service_name} number verification succeeded. Code: ${otp}`, 'GENERAL');
+          await sendNotification(profile.id, 'SMS Verified!', `Your ${row.service_name} (${row.country_name || ''}) verification succeeded. Code: ${otp}`, 'GENERAL');
           pushToUser(profile.id, 'SMS Verified!', `${row.service_name} verification complete. Code: ${otp}`);
           return sendSuccess(res, { status: 'VERIFIED', otp, number: row.phone_number });
         }
