@@ -33,6 +33,28 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { balance_usd: balance });
       }
 
+      case 'refresh_prices': {
+        const { data: rows } = await supabaseAdmin.from('sms_services').select('*');
+        if (!rows || rows.length === 0) return sendSuccess(res, { updated: 0 }, 'No services to refresh.');
+
+        let catalogMap = new Map();
+        try {
+          const catalog = await smspool.getServices();
+          catalogMap = new Map(catalog.map(c => [c.smspool_service_id, c.price_usd]));
+        } catch (e) { console.error('catalog fetch failed:', e.message); }
+
+        let updated = 0;
+        for (const r of rows) {
+          let price = catalogMap.get(r.smspool_service_id) || 0;
+          if (!price) price = await smspool.getServicePrice(r.smspool_service_id);
+          if (price > 0 && Number(r.price_usd) !== price) {
+            await supabaseAdmin.from('sms_services').update({ price_usd: price }).eq('id', r.id);
+            updated++;
+          }
+        }
+        return sendSuccess(res, { updated }, `Refreshed live prices for ${updated} service(s).`);
+      }
+
       case 'get_sms_stats': {
         const [settingsRes, servicesRes, verRes] = await Promise.all([
           supabaseAdmin.from('platform_settings').select('key, value').in('key', Object.keys(SMS_SETTING_RULES)),
@@ -40,20 +62,15 @@ module.exports = async (req, res) => {
           supabaseAdmin.from('sms_verifications').select('user_id, service_name, status, charged_ngn, refunded, created_at')
             .order('created_at', { ascending: false }).limit(500)
         ]);
-
         const map = {};
         (settingsRes.data || []).forEach(r => { map[r.key] = r.value; });
         const enabled = map.sms_enabled === true || map.sms_enabled === 'true';
-
         const rows = verRes.data || [];
         const total = rows.length;
         const verified = rows.filter(r => r.status === 'VERIFIED').length;
-        const failed = rows.filter(r => r.status === 'FAILED' || r.status === 'CANCELLED').length;
-        const active = rows.filter(r => r.status === 'ACTIVE').length;
         const revenue = rows
           .filter(r => r.status === 'VERIFIED' || (r.status === 'ACTIVE' && !r.refunded))
           .reduce((s, r) => s + Number(r.charged_ngn || 0), 0);
-
         const recent = rows.slice(0, 5);
         let recentEnriched = recent;
         if (recent.length > 0) {
@@ -62,11 +79,12 @@ module.exports = async (req, res) => {
           const nameMap = new Map((users || []).map(u => [u.id, u.full_name]));
           recentEnriched = recent.map(r => ({ ...r, user_name: nameMap.get(r.user_id) || 'Unknown' }));
         }
-
         return sendSuccess(res, {
           enabled,
           services_active: (servicesRes.data || []).length,
-          total, verified, failed, active,
+          total, verified,
+          failed: rows.filter(r => r.status === 'FAILED' || r.status === 'CANCELLED').length,
+          active: rows.filter(r => r.status === 'ACTIVE').length,
           revenue_ngn: revenue,
           success_rate: total ? Math.round((verified / total) * 100) : 0,
           recent: recentEnriched
@@ -74,8 +92,7 @@ module.exports = async (req, res) => {
       }
 
       case 'get_settings': {
-        const { data } = await supabaseAdmin.from('platform_settings').select('key, value')
-          .in('key', Object.keys(SMS_SETTING_RULES));
+        const { data } = await supabaseAdmin.from('platform_settings').select('key, value').in('key', Object.keys(SMS_SETTING_RULES));
         const map = {};
         (data || []).forEach(r => { map[r.key] = r.value; });
         return sendSuccess(res, { settings: map });
@@ -90,9 +107,7 @@ module.exports = async (req, res) => {
           if (rule.type === 'boolean') rows.push({ key, value: !!raw });
           else {
             const num = Number(raw);
-            if (isNaN(num) || num < rule.min || num > rule.max) {
-              return sendError(res, 'VALIDATION_ERROR', `${key} must be between ${rule.min} and ${rule.max}.`, 400);
-            }
+            if (isNaN(num) || num < rule.min || num > rule.max) return sendError(res, 'VALIDATION_ERROR', `${key} must be between ${rule.min} and ${rule.max}.`, 400);
             rows.push({ key, value: num });
           }
         }
@@ -117,14 +132,19 @@ module.exports = async (req, res) => {
         const { smspool_service_id, name, price_usd } = req.body;
         const sid = Number(smspool_service_id);
         if (!sid || !name) return sendError(res, 'VALIDATION_ERROR', 'Service ID and name required.', 400);
+
+        // If price missing/zero, try to fetch it live right now
+        let price = Number(price_usd) || 0;
+        if (price <= 0) price = await smspool.getServicePrice(sid);
+
         const { data, error } = await supabaseAdmin.from('sms_services')
-          .insert({ smspool_service_id: sid, name: String(name).trim(), price_usd: Number(price_usd) || 0, is_active: true })
+          .insert({ smspool_service_id: sid, name: String(name).trim(), price_usd: price, is_active: true })
           .select().single();
         if (error) {
           if (error.code === '23505') throw { code: 'DUPLICATE', message: 'Service already added.', statusCode: 400 };
           throw error;
         }
-        return sendSuccess(res, { service: data }, 'Service enabled.');
+        return sendSuccess(res, { service: data }, price > 0 ? 'Service enabled.' : 'Service enabled — SET ITS PRICE below before users can buy.');
       }
 
       case 'update_service': {
@@ -132,7 +152,11 @@ module.exports = async (req, res) => {
         if (!id) return sendError(res, 'VALIDATION_ERROR', 'Service ID required.', 400);
         const patch = {};
         if (is_active !== undefined) patch.is_active = !!is_active;
-        if (price_usd !== undefined) patch.price_usd = Number(price_usd);
+        if (price_usd !== undefined) {
+          const p = Number(price_usd);
+          if (isNaN(p) || p < 0) return sendError(res, 'VALIDATION_ERROR', 'Invalid price.', 400);
+          patch.price_usd = p;
+        }
         const { error } = await supabaseAdmin.from('sms_services').update(patch).eq('id', id);
         if (error) throw error;
         return sendSuccess(res, {}, 'Service updated.');
