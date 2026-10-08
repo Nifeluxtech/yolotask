@@ -7,7 +7,11 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <style>
-    .balance-card { background: linear-gradient(135deg, var(--accent), #4338ca); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 18px; }
+    .balance-card { background: linear-gradient(135deg, var(--accent), #4338ca); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 16px; }
+    .checkin-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--bg-secondary); border: 1px dashed var(--accent); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 16px; }
+    .checkin-card.done { border-style: solid; border-color: var(--success); background: var(--success-bg); }
+    .checkin-btn { background: linear-gradient(90deg, var(--accent), #4338ca); color: #fff; border: none; padding: 12px 20px; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+    .checkin-btn:disabled { opacity: .6; cursor: default; }
     .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
     .quick-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-decoration: none; color: var(--text-primary); }
     .quick-card .qc-icon { font-size: 22px; margin-bottom: 6px; }
@@ -16,8 +20,6 @@
     .progress-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 18px; }
     .pbar { height: 10px; background: var(--bg-primary); border-radius: 6px; overflow: hidden; margin: 10px 0 6px; }
     .pbar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #4338ca); border-radius: 6px; transition: width .6s ease; }
-
-    /* Famsup-style task cards */
     .task-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 18px; padding: 18px; margin-bottom: 14px; }
     .tc-top { display: flex; gap: 14px; align-items: flex-start; }
     .tc-logo { width: 52px; height: 52px; border-radius: 14px; background: var(--bg-primary); border: 1px solid var(--border); padding: 8px; object-fit: contain; flex-shrink: 0; }
@@ -45,6 +47,11 @@
       <div style="font-size:13px; opacity:.85;">Available Balance</div>
       <div style="font-size:34px; font-weight:800; margin:4px 0;" id="walletBalance">₦0.00</div>
       <a href="/earner/wallet.html" style="color:#fff; font-size:13px; text-decoration:underline;">Withdraw / History →</a>
+    </div>
+
+    <!-- DAILY CHECK-IN -->
+    <div class="checkin-card" id="checkinCard">
+      <div style="font-size:13px; color:var(--text-secondary);">Loading check-in...</div>
     </div>
 
     <div class="progress-card">
@@ -80,10 +87,59 @@
       { name: 'Platinum', min: 75 }, { name: 'Diamond', min: 90 }
     ];
 
+    async function loadCheckin() {
+      const card = document.getElementById('checkinCard');
+      try {
+        const res = await apiClient.request('wallet.js', { action: 'get_checkin_status' });
+        const { checked_in_today, reward } = res.data;
+        if (checked_in_today) {
+          card.classList.add('done');
+          card.innerHTML = `
+            <div>
+              <div style="font-weight:800; font-size:14px; color:var(--success);">✓ Checked in today</div>
+              <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">Come back tomorrow for another +${formatCurrency(reward)}</div>
+            </div>
+            <div style="font-size:20px;">📅</div>`;
+        } else {
+          card.classList.remove('done');
+          card.innerHTML = `
+            <div>
+              <div style="font-weight:800; font-size:14px;">Daily Check-in</div>
+              <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">Tap to claim your free daily reward</div>
+            </div>
+            <button class="checkin-btn" id="checkinBtn">Check In +${formatCurrency(reward)}</button>`;
+          document.getElementById('checkinBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('checkinBtn');
+            btn.disabled = true; btn.textContent = 'Claiming...';
+            try {
+              const r = await apiClient.request('wallet.js', { action: 'daily_checkin' });
+              showToast(r.message || 'Checked in!', 'success');
+              loadCheckin();
+              refreshBalance();
+            } catch (err) {
+              showToast(err.message, 'error');
+              btn.disabled = false; btn.textContent = 'Check In';
+            }
+          });
+        }
+      } catch (err) {
+        card.innerHTML = `<div style="font-size:12px; color:var(--error);">Check-in unavailable: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function refreshBalance() {
+      try {
+        const balRes = await apiClient.request('wallet.js', { action: 'get_balance' });
+        document.getElementById('walletBalance').textContent = formatCurrency(balRes.data.wallet.available_balance);
+      } catch (e) {}
+    }
+
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
       if (!profile) return;
       document.getElementById('userName').textContent = profile.full_name;
+
+      loadCheckin();
 
       try {
         const [balRes, repRes, feedRes] = await Promise.all([
