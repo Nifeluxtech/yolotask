@@ -48,7 +48,6 @@ module.exports = async (req, res) => {
     requireRole(profile, ['earner', 'advertiser']);
 
     switch (action) {
-      // ---------- LIVE CATALOG ----------
       case 'get_countries': {
         const s = await getSettings();
         if (!s.enabled) return sendSuccess(res, { enabled: false, countries: [] });
@@ -73,7 +72,8 @@ module.exports = async (req, res) => {
         if (!priceUsd) {
           return sendError(res, 'NO_POOLS', 'No number pools for this service + country right now. Try another country.', 400);
         }
-        return sendSuccess(res, { price_usd: priceUsd, price_ngn: priceNgn(priceUsd, s) });
+        // ₦ ONLY — the USD cost never leaves the server
+        return sendSuccess(res, { price_ngn: priceNgn(priceUsd, s) });
       }
 
       case 'get_wallet_balance': {
@@ -81,7 +81,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { available_balance: Number(data?.available_balance || 0) });
       }
 
-      // ---------- ORDER ----------
       case 'start_verification': {
         const s = await getSettings();
         if (!s.enabled) return sendError(res, 'SMS_DISABLED', 'SMS verification is currently disabled.', 403);
@@ -93,7 +92,6 @@ module.exports = async (req, res) => {
           .eq('user_id', profile.id).eq('status', 'ACTIVE').maybeSingle();
         if (active) return sendError(res, 'SMS_ACTIVE_EXISTS', 'You already have a verification in progress.', 400);
 
-        // Validate against the live SMSPool catalog
         const live = await smspool.getServices();
         const hit = live.find(x => x.smspool_service_id === Number(serviceId));
         if (!hit) return sendError(res, 'NOT_FOUND', 'Service not available on SMSPool.', 404);
@@ -159,7 +157,6 @@ module.exports = async (req, res) => {
         }, `Number assigned. ${charge.toLocaleString()} NGN charged.`);
       }
 
-      // ---------- POLL / CANCEL / HISTORY ----------
       case 'poll_status': {
         const { verificationId } = req.body;
         if (!verificationId) return sendError(res, 'VALIDATION_ERROR', 'Verification ID required.', 400);
