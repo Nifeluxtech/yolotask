@@ -12,14 +12,11 @@ async function paystackGet(path) {
   return await resp.json();
 }
 
-async function getMinWithdrawal() {
-  const { data } = await supabaseAdmin
-    .from('platform_settings')
-    .select('value')
-    .eq('key', 'min_withdrawal_amount')
-    .maybeSingle();
-  const val = Number(data?.value ?? 1000);
-  return isNaN(val) ? 1000 : val;
+async function getSettingNumber(key, fallback) {
+  const { data } = await supabaseAdmin.from('platform_settings').select('value').eq('key', key).maybeSingle();
+  if (!data) return fallback;
+  const val = Number(data.value);
+  return isNaN(val) ? fallback : val;
 }
 
 module.exports = async (req, res) => {
@@ -37,7 +34,7 @@ module.exports = async (req, res) => {
         requireRole(profile, ['earner', 'advertiser']);
         const { data: wallet, error } = await supabaseAdmin.from('wallets').select('*').eq('user_id', profile.id).single();
         if (error) throw error;
-        const min_withdrawal = await getMinWithdrawal();
+        const min_withdrawal = await getSettingNumber('min_withdrawal_amount', 1000);
         return sendSuccess(res, { wallet, min_withdrawal });
       }
 
@@ -47,6 +44,33 @@ module.exports = async (req, res) => {
           .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(50);
         if (error) throw error;
         return sendSuccess(res, { transactions: data || [] });
+      }
+
+      // ---------- DAILY CHECK-IN ----------
+      case 'get_checkin_status': {
+        requireRole(profile, ['earner']);
+        const { data } = await supabaseAdmin.from('wallet_ledger')
+          .select('created_at')
+          .eq('user_id', profile.id)
+          .eq('transaction_type', 'DAILY_CHECKIN')
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        const last = data && data[0] ? data[0].created_at : null;
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        const checked = !!last && last.slice(0, 10) === todayUtc;
+        const reward = await getSettingNumber('daily_checkin_reward', 10);
+
+        return sendSuccess(res, { checked_in_today: checked, reward });
+      }
+
+      case 'daily_checkin': {
+        requireRole(profile, ['earner']);
+        const { data, error } = await supabaseAdmin.rpc('perform_daily_checkin', { p_user_id: profile.id });
+        if (error) {
+          throw { code: 'CHECKIN_FAILED', message: error.message || 'Already checked in today.', statusCode: 400 };
+        }
+        return sendSuccess(res, { reward: data }, `Check-in successful! +₦${Number(data).toLocaleString()} added to your wallet.`);
       }
 
       case 'get_my_withdrawals': {
@@ -71,12 +95,8 @@ module.exports = async (req, res) => {
           row = data;
           if (row && (row.user_id === profile.id || profile.role === 'admin')) {
             receipt = {
-              type: 'Withdrawal Payout',
-              reference: 'WD-' + row.id,
-              amount: Number(row.amount),
-              status: row.status,
-              created_at: row.created_at,
-              processed_at: row.processed_at,
+              type: 'Withdrawal Payout', reference: 'WD-' + row.id, amount: Number(row.amount),
+              status: row.status, created_at: row.created_at, processed_at: row.processed_at,
               detail: `${row.bank_name} • ****${String(row.account_number).slice(-4)} • ${row.account_name}`
             };
           }
@@ -85,11 +105,8 @@ module.exports = async (req, res) => {
           row = data;
           if (row && (row.user_id === profile.id || profile.role === 'admin')) {
             receipt = {
-              type: 'Wallet Top-up',
-              reference: row.paystack_reference,
-              amount: Number(row.amount),
-              status: row.status,
-              created_at: row.created_at,
+              type: 'Wallet Top-up', reference: row.paystack_reference, amount: Number(row.amount),
+              status: row.status, created_at: row.created_at,
               processed_at: row.status === 'SUCCESS' ? row.created_at : null,
               detail: 'Paid via Paystack'
             };
@@ -101,8 +118,7 @@ module.exports = async (req, res) => {
         if (!receipt) return sendError(res, 'NOT_FOUND', 'Receipt not found or not yours.', 404);
 
         const { data: owner } = await supabaseAdmin.from('profiles')
-          .select('full_name, email, business_name, phone')
-          .eq('id', row.user_id).single();
+          .select('full_name, email, business_name, phone').eq('id', row.user_id).single();
 
         receipt.customer = {
           name: owner?.business_name || owner?.full_name || 'Customer',
@@ -110,8 +126,7 @@ module.exports = async (req, res) => {
           email: owner?.email || '',
           phone: owner?.phone || ''
         };
-        receipt.platform = { name: 'YOLOTASK', issuer: 'Nifelux Media', support: 'support@yolotask.com' };
-
+        receipt.platform = { name: 'YOLOTASK', issuer: 'Nifelux Media', support: 'support@nifelux.com' };
         return sendSuccess(res, { receipt });
       }
 
@@ -128,10 +143,8 @@ module.exports = async (req, res) => {
         const { account_number, bank_code } = req.body;
         if (!account_number || !bank_code) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
         if (!/^\d{10}$/.test(account_number)) return sendError(res, 'VALIDATION_ERROR', 'Account number must be exactly 10 digits.', 400);
-
         const result = await paystackGet(`/bank/resolve?account_number=${encodeURIComponent(account_number)}&bank_code=${encodeURIComponent(bank_code)}`);
         if (!result.status) throw { code: 'RESOLUTION_FAILED', message: result.message || 'Could not verify this account.', statusCode: 400 };
-
         return sendSuccess(res, { account_name: result.data.account_name });
       }
 
@@ -146,22 +159,16 @@ module.exports = async (req, res) => {
       case 'save_bank_account': {
         requireRole(profile, ['earner']);
         const { bank_code, bank_name, account_number, account_name, is_default } = req.body;
-        if (!bank_code || !bank_name || !account_number || !account_name) {
-          return sendError(res, 'VALIDATION_ERROR', 'Resolve the account before saving.', 400);
-        }
+        if (!bank_code || !bank_name || !account_number || !account_name) return sendError(res, 'VALIDATION_ERROR', 'Resolve the account before saving.', 400);
         if (!/^\d{10}$/.test(account_number)) return sendError(res, 'VALIDATION_ERROR', 'Invalid account number.', 400);
 
-        if (is_default) {
-          await supabaseAdmin.from('earner_bank_accounts').update({ is_default: false }).eq('user_id', profile.id);
-        }
-
+        if (is_default) await supabaseAdmin.from('earner_bank_accounts').update({ is_default: false }).eq('user_id', profile.id);
         const { data: existingCount } = await supabaseAdmin.from('earner_bank_accounts').select('id').eq('user_id', profile.id);
         const makeDefault = is_default || !existingCount || existingCount.length === 0;
 
         const { data, error } = await supabaseAdmin.from('earner_bank_accounts')
           .insert({ user_id: profile.id, bank_code, bank_name, account_number, account_name, is_default: makeDefault })
           .select().single();
-
         if (error) {
           if (error.code === '23505') throw { code: 'DUPLICATE_ACCOUNT', message: 'This bank account is already saved.', statusCode: 400 };
           throw error;
@@ -173,7 +180,6 @@ module.exports = async (req, res) => {
         requireRole(profile, ['earner']);
         const { accountId } = req.body;
         if (!accountId) return sendError(res, 'VALIDATION_ERROR', 'Account ID required.', 400);
-
         await supabaseAdmin.from('earner_bank_accounts').update({ is_default: false }).eq('user_id', profile.id);
         const { error } = await supabaseAdmin.from('earner_bank_accounts')
           .update({ is_default: true }).eq('id', accountId).eq('user_id', profile.id);
@@ -185,9 +191,7 @@ module.exports = async (req, res) => {
         requireRole(profile, ['earner']);
         const { accountId } = req.body;
         if (!accountId) return sendError(res, 'VALIDATION_ERROR', 'Account ID required.', 400);
-
-        const { error } = await supabaseAdmin.from('earner_bank_accounts')
-          .delete().eq('id', accountId).eq('user_id', profile.id);
+        const { error } = await supabaseAdmin.from('earner_bank_accounts').delete().eq('id', accountId).eq('user_id', profile.id);
         if (error) throw error;
         return sendSuccess(res, {}, 'Bank account removed.');
       }
@@ -196,11 +200,10 @@ module.exports = async (req, res) => {
       case 'request_withdrawal': {
         requireRole(profile, ['earner']);
         const { amount, bank_account_id, bank_name, account_number, account_name } = req.body;
-
         const amt = Number(amount);
         if (!amt || amt <= 0) return sendError(res, 'VALIDATION_ERROR', 'Invalid amount.', 400);
 
-        const min = await getMinWithdrawal();
+        const min = await getSettingNumber('min_withdrawal_amount', 1000);
         if (amt < min) return sendError(res, 'BELOW_MINIMUM', `Minimum withdrawal is ₦${min}.`, 400);
 
         let bankDetails = null;
@@ -215,40 +218,28 @@ module.exports = async (req, res) => {
             .eq('user_id', profile.id).eq('is_default', true).maybeSingle();
           if (def) bankDetails = def;
         }
-
         if (!bankDetails) return sendError(res, 'NO_PAYOUT_ACCOUNT', 'Add a bank account in Settings → Payouts first.', 400);
 
         const { data: wallet } = await supabaseAdmin.from('wallets').select('*').eq('user_id', profile.id).single();
-        if (!wallet || Number(wallet.available_balance) < amt) {
-          return sendError(res, 'INSUFFICIENT_FUNDS', 'Available balance is too low.', 400);
-        }
+        if (!wallet || Number(wallet.available_balance) < amt) return sendError(res, 'INSUFFICIENT_FUNDS', 'Available balance is too low.', 400);
 
         const newBalance = Number(wallet.available_balance) - amt;
         const { error: updErr } = await supabaseAdmin.from('wallets')
           .update({ available_balance: newBalance, updated_at: new Date().toISOString() })
-          .eq('user_id', profile.id)
-          .eq('available_balance', wallet.available_balance);
+          .eq('user_id', profile.id).eq('available_balance', wallet.available_balance);
         if (updErr) throw updErr;
 
         const { data: withdrawal, error: wdErr } = await supabaseAdmin.from('withdrawals')
           .insert({
-            user_id: profile.id,
-            amount: amt,
-            bank_name: bankDetails.bank_name,
-            account_number: bankDetails.account_number,
-            account_name: bankDetails.account_name,
-            status: 'PENDING'
-          })
-          .select().single();
+            user_id: profile.id, amount: amt,
+            bank_name: bankDetails.bank_name, account_number: bankDetails.account_number,
+            account_name: bankDetails.account_name, status: 'PENDING'
+          }).select().single();
         if (wdErr) throw wdErr;
 
         await supabaseAdmin.from('wallet_ledger').insert({
-          user_id: profile.id,
-          transaction_type: 'WITHDRAWAL',
-          amount: amt,
-          direction: 'DEBIT',
-          status: 'COMPLETED',
-          reference: 'WD-' + withdrawal.id
+          user_id: profile.id, transaction_type: 'WITHDRAWAL', amount: amt,
+          direction: 'DEBIT', status: 'COMPLETED', reference: 'WD-' + withdrawal.id
         });
 
         return sendSuccess(res, { withdrawal }, 'Withdrawal requested. Processing within 24 hours.');
