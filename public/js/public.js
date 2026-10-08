@@ -1,4 +1,4 @@
-// /public/js/public.js — Public chrome + dynamics + flip-card auth
+// /public/js/public.js — Public chrome + dynamics + flip-card auth (with refresh token storage)
 
 (function injectPublicChrome() {
   const path = location.pathname;
@@ -11,7 +11,6 @@
     reviewer: '/reviewer/dashboard.html', admin: '/admin/dashboard.html'
   };
 
-  // ----- THE ONE HEADER -----
   if (!document.querySelector('.pub-header')) {
     const h = document.createElement('header');
     h.className = 'pub-header';
@@ -30,7 +29,6 @@
     document.body.prepend(h);
   }
 
-  // ----- PUBLIC FOOTER (not on auth pages) -----
   if (!isAuthPage && !document.querySelector('.pub-footer')) {
     const f = document.createElement('footer');
     f.className = 'pub-footer';
@@ -48,7 +46,6 @@
     document.body.appendChild(f);
   }
 
-  // ----- SCROLL REVEALS -----
   const io = ('IntersectionObserver' in window)
     ? new IntersectionObserver(entries => entries.forEach(en => {
         if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
@@ -59,7 +56,6 @@
     document.querySelectorAll('.reveal:not(.in)').forEach(el => io ? io.observe(el) : el.classList.add('in'));
   };
 
-  // ----- ANIMATED COUNTERS -----
   window.__animateCounters = function () {
     document.querySelectorAll('[data-count]').forEach(el => {
       const target = parseFloat(el.dataset.count || '0');
@@ -92,8 +88,13 @@ window.__initFlipAuth = function (initialFace, refCode) {
   let role = 'earner';
   const ref = refCode || '';
 
+  // Stores token + REFRESH token so sessions survive token expiry
+  function storeSession(session) {
+    localStorage.setItem('yolotask_token', session.access_token);
+    if (session.refresh_token) localStorage.setItem('yolotask_refresh', session.refresh_token);
+  }
+
   card.innerHTML = `
-    <!-- FRONT: LOGIN -->
     <div class="flip-face front">
       <div class="face-title">Welcome back 👋</div>
       <div class="face-sub">Sign in to continue earning or growing your brand.</div>
@@ -108,7 +109,6 @@ window.__initFlipAuth = function (initialFace, refCode) {
       <div class="flip-switch">New to YOLOTASK? <a id="toRegister">Create an account</a></div>
     </div>
 
-    <!-- BACK: REGISTER -->
     <div class="flip-face back">
       <div class="face-title">Create your account ✨</div>
       <div class="face-sub">Join Nigeria's fastest-growing task marketplace.</div>
@@ -159,7 +159,6 @@ window.__initFlipAuth = function (initialFace, refCode) {
     document.getElementById('rgInterestsBlock').style.display = 'none';
   });
 
-  // Load interests for chips
   apiClient.request('auth.js', { action: 'get_public_data' })
     .then(res => {
       const list = res.data.interests || [];
@@ -171,7 +170,6 @@ window.__initFlipAuth = function (initialFace, refCode) {
       document.getElementById('rgInterests').innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">Could not load interests.</div>';
     });
 
-  // ----- LOGIN -----
   async function doLogin() {
     const btn = document.getElementById('liBtn');
     const email = document.getElementById('liEmail').value.trim();
@@ -181,9 +179,9 @@ window.__initFlipAuth = function (initialFace, refCode) {
     btn.disabled = true; btn.textContent = 'Signing in...';
     try {
       const res = await apiClient.request('auth.js', { action: 'login', email, password });
-      const token = res.data && res.data.session && res.data.session.access_token;
-      if (!token) throw new Error('Login response missing session token.');
-      localStorage.setItem('yolotask_token', token);
+      const session = res.data && res.data.session;
+      if (!session || !session.access_token) throw new Error('Login response missing session token.');
+      storeSession(session);
 
       const s = await apiClient.request('auth.js', { action: 'get-session' });
       const p = s.data.profile;
@@ -198,7 +196,6 @@ window.__initFlipAuth = function (initialFace, refCode) {
   document.getElementById('liBtn').addEventListener('click', doLogin);
   document.getElementById('liPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
-  // ----- REGISTER -----
   document.getElementById('rgBtn').addEventListener('click', async () => {
     const btn = document.getElementById('rgBtn');
     const full_name = document.getElementById('rgName').value.trim();
@@ -214,14 +211,12 @@ window.__initFlipAuth = function (initialFace, refCode) {
     btn.disabled = true; btn.textContent = 'Creating account...';
     try {
       await apiClient.request('auth.js', {
-        action: 'register',
-        email, password, full_name, gender, role, interests,
+        action: 'register', email, password, full_name, gender, role, interests,
         referral_code: ref || undefined
       });
 
-      // Auto-login straight after registration
       const lr = await apiClient.request('auth.js', { action: 'login', email, password });
-      localStorage.setItem('yolotask_token', lr.data.session.access_token);
+      storeSession(lr.data.session);
       const s = await apiClient.request('auth.js', { action: 'get-session' });
       const p = s.data.profile;
       localStorage.setItem('yolotask_user', JSON.stringify(p));
