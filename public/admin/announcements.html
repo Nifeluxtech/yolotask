@@ -7,12 +7,20 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .batch-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
+    .batch-chip { padding: 8px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; transition: .15s; }
+    .batch-chip.active { background: var(--accent-glow); color: var(--accent); border-color: var(--accent); }
+    .custom-range { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; }
+    .custom-range input { width: 90px; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); }
+  </style>
 </head>
 <body>
   <div class="admin-layout">
     <aside class="admin-sidebar">
       <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/catalog.html">🧩 Catalog</a>
       <a href="/admin/leaders.html">🏆 Leader Console</a>
       <a href="/admin/campaigns.html">📝 Campaigns</a>
       <a href="/admin/escalated.html">⚠️ Escalated</a>
@@ -26,8 +34,10 @@
     <main class="admin-main">
       <header class="admin-header">
         <div class="page-title">Announcements</div>
+        <span class="badge cyan" id="userCountBadge">… users</span>
       </header>
 
+      <!-- PUBLISH -->
       <div class="panel">
         <h3>New Broadcast</h3>
         <label class="f-label">Title</label>
@@ -40,17 +50,51 @@
           <option value="SECURITY">Security Notice</option>
         </select>
         <label class="f-label">Message</label>
-        <textarea id="annMessage" class="f-input" style="min-height:120px;" placeholder="Write your announcement..."></textarea>
+        <textarea id="annMessage" class="f-input" style="min-height:110px;" placeholder="Write your announcement..."></textarea>
 
         <div class="toggle-row">
           <div>
-            <div style="font-weight:600; font-size:14px;">Also send via Email</div>
-            <div style="font-size:12px; color:var(--text-secondary);">Broadcasts to every registered email (Resend).</div>
+            <div style="font-weight:600; font-size:14px;">Include email batch</div>
+            <div style="font-size:12px; color:var(--text-secondary);">In-app always goes to everyone; email respects the daily free-tier batch below.</div>
           </div>
-          <label class="switch"><input type="checkbox" id="annEmail" /><span class="slider"></span></label>
+          <label class="switch"><input type="checkbox" id="pubEmail" /><span class="slider"></span></label>
+        </div>
+
+        <div id="pubBatchBox" style="display:none;">
+          <label class="f-label">Email batch (users by signup order)</label>
+          <div class="batch-chips" id="pubChips"></div>
+          <div class="custom-range">
+            Custom: from <input type="number" id="pubFrom" min="1" placeholder="1" /> to <input type="number" id="pubTo" min="1" placeholder="100" />
+          </div>
         </div>
 
         <button class="btn btn-primary w-full" id="publishBtn">Publish Announcement</button>
+      </div>
+
+      <!-- EMAIL-ONLY BATCH SENDER -->
+      <div class="panel">
+        <h3>📧 Batch Email Sender (next sets of users)</h3>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:14px;">
+          Resend free tier = 100 emails/day. Send batch 1–100 today, 101–200 tomorrow, and so on — without re-notifying in-app.
+        </p>
+        <label class="f-label">Announcement to email</label>
+        <select id="annSelect" class="f-input"><option value="">Loading...</option></select>
+
+        <label class="f-label">Email batch</label>
+        <div class="batch-chips" id="sendChips"></div>
+        <div class="custom-range">
+          Custom: from <input type="number" id="sendFrom" min="1" placeholder="101" /> to <input type="number" id="sendTo" min="1" placeholder="200" />
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div style="font-weight:600; font-size:14px;">Email only (no in-app repeat)</div>
+            <div style="font-size:12px; color:var(--text-secondary);">Keep ON for next batches. Turn OFF to also re-send in-app notification.</div>
+          </div>
+          <label class="switch green"><input type="checkbox" id="emailOnly" checked /><span class="slider"></span></label>
+        </div>
+
+        <button class="btn btn-primary w-full" id="sendBatchBtn">Send Email Batch</button>
       </div>
     </main>
   </div>
@@ -59,36 +103,116 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
+    let totalUsers = 0;
+    let pubRange = { offset: 0, limit: 100 };
+    let sendRange = { offset: 0, limit: 100 };
+
+    function buildChips(containerId, onPick) {
+      const box = document.getElementById(containerId);
+      const maxBatches = Math.max(1, Math.ceil((totalUsers || 100) / 100));
+      let html = '';
+      for (let i = 0; i < Math.min(maxBatches, 8); i++) {
+        const from = i * 100 + 1;
+        const to = (i + 1) * 100;
+        html += `<button type="button" class="batch-chip ${i === 0 ? 'active' : ''}" data-offset="${i * 100}" data-limit="100">${from}–${to}</button>`;
+      }
+      box.innerHTML = html;
+      box.querySelectorAll('.batch-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          box.querySelectorAll('.batch-chip').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          onPick({ offset: Number(btn.dataset.offset), limit: Number(btn.dataset.limit) });
+        });
+      });
+    }
+
     (async () => {
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
 
-      document.getElementById('publishBtn').addEventListener('click', async () => {
-        const title = document.getElementById('annTitle').value.trim();
-        const message = document.getElementById('annMessage').value.trim();
-        const sendEmail = document.getElementById('annEmail').checked;
+      try {
+        const res = await apiClient.request('admin.js', { action: 'get_broadcast_info' });
+        totalUsers = res.data.total_users || 0;
+        document.getElementById('userCountBadge').textContent = totalUsers + ' users';
 
-        if (!title || !message) { showToast('Title and message are required.', 'error'); return; }
-        if (sendEmail && !confirm('This will email EVERY registered user. Continue?')) return;
+        const sel = document.getElementById('annSelect');
+        const anns = res.data.announcements || [];
+        sel.innerHTML = anns.length
+          ? anns.map(a => `<option value="${a.id}">${escapeHtml(a.title)} — ${formatDate(a.created_at)}</option>`).join('')
+          : '<option value="">No announcements yet — publish one first</option>';
 
-        const btn = document.getElementById('publishBtn');
-        btn.disabled = true; btn.textContent = sendEmail ? 'Publishing & emailing...' : 'Publishing...';
-
-        try {
-          const res = await apiClient.request('admin.js', {
-            action: 'create_announcement',
-            title, message,
-            type: document.getElementById('annType').value,
-            sendEmail
-          });
-          showToast(res.message || 'Published.', 'success');
-          document.getElementById('annTitle').value = '';
-          document.getElementById('annMessage').value = '';
-          document.getElementById('annEmail').checked = false;
-        } catch (err) { showToast(err.message, 'error'); }
-        btn.disabled = false; btn.textContent = 'Publish Announcement';
-      });
+        buildChips('pubChips', r => { pubRange = r; clearCustom('pub'); });
+        buildChips('sendChips', r => { sendRange = r; clearCustom('send'); });
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     })();
+
+    function clearCustom(prefix) {
+      document.getElementById(prefix + 'From').value = '';
+      document.getElementById(prefix + 'To').value = '';
+    }
+
+    function readRange(prefix, fallback) {
+      const from = Number(document.getElementById(prefix + 'From').value);
+      const to = Number(document.getElementById(prefix + 'To').value);
+      if (from >= 1 && to >= from) return { offset: from - 1, limit: Math.min(100, to - from + 1) };
+      return fallback;
+    }
+
+    document.getElementById('pubEmail').addEventListener('change', (e) => {
+      document.getElementById('pubBatchBox').style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    document.getElementById('publishBtn').addEventListener('click', async () => {
+      const title = document.getElementById('annTitle').value.trim();
+      const message = document.getElementById('annMessage').value.trim();
+      const sendEmail = document.getElementById('pubEmail').checked;
+      if (!title || !message) { showToast('Title and message are required.', 'error'); return; }
+
+      const btn = document.getElementById('publishBtn');
+      btn.disabled = true; btn.textContent = 'Publishing...';
+      try {
+        const res = await apiClient.request('admin.js', {
+          action: 'create_announcement',
+          title, message,
+          type: document.getElementById('annType').value,
+          sendEmail,
+          emailOffset: sendEmail ? readRange('pub', pubRange).offset : 0,
+          emailLimit: sendEmail ? readRange('pub', pubRange).limit : 100
+        });
+        showToast(res.message || 'Published.', 'success');
+        document.getElementById('annTitle').value = '';
+        document.getElementById('annMessage').value = '';
+        document.getElementById('pubEmail').checked = false;
+        document.getElementById('pubBatchBox').style.display = 'none';
+      } catch (err) { showToast(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = 'Publish Announcement';
+    });
+
+    document.getElementById('sendBatchBtn').addEventListener('click', async () => {
+      const announcementId = document.getElementById('annSelect').value;
+      if (!announcementId) { showToast('Publish an announcement first.', 'error'); return; }
+
+      const range = readRange('send', sendRange);
+      const emailOnly = document.getElementById('emailOnly').checked;
+      const label = `users ${range.offset + 1}–${range.offset + range.limit}`;
+      if (!confirm(`Send email to ${label}${emailOnly ? ' (email only)' : ' (email + in-app repeat)'}?`)) return;
+
+      const btn = document.getElementById('sendBatchBtn');
+      btn.disabled = true; btn.textContent = 'Sending batch...';
+      try {
+        const res = await apiClient.request('admin.js', {
+          action: 'send_email_batch',
+          announcementId,
+          emailOffset: range.offset,
+          emailLimit: range.limit,
+          emailOnly
+        });
+        showToast(res.message || 'Batch sent.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = 'Send Email Batch';
+    });
   </script>
 </body>
 </html>
