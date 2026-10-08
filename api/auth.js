@@ -25,36 +25,46 @@ module.exports = async (req, res) => {
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
     switch (action) {
-      // ---------- PUBLIC (no auth) ----------
+      // ---------- PUBLIC ----------
+      case 'refresh_session': {
+        const { refresh_token } = req.body;
+        if (!refresh_token) return sendError(res, 'VALIDATION_ERROR', 'Refresh token required.', 400);
+
+        const resp = await fetch(`${process.env.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: process.env.SUPABASE_SERVICE_ROLE_KEY
+          },
+          body: JSON.stringify({ refresh_token })
+        });
+        const session = await resp.json();
+
+        if (!resp.ok || !session || !session.access_token) {
+          return sendError(res, 'REFRESH_FAILED', 'Session expired. Please log in again.', 401);
+        }
+        return sendSuccess(res, { session }, 'Session refreshed.');
+      }
+
       case 'get_public_data': {
         const [earners, advertisers, live, paid, interests] = await Promise.all([
           supabaseAdmin.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'earner'),
           supabaseAdmin.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'advertiser'),
           supabaseAdmin.from('campaigns').select('id', { count: 'exact', head: true }).eq('status', 'LIVE'),
           supabaseAdmin.from('wallet_ledger').select('amount')
-            .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER'])
-            .limit(10000),
+            .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER']).limit(10000),
           supabaseAdmin.from('interests').select('id, name').order('name').limit(24)
         ]);
-
         const totalPaid = (paid.data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-
         return sendSuccess(res, {
-          stats: {
-            earners: earners.count || 0,
-            advertisers: advertisers.count || 0,
-            live_campaigns: live.count || 0,
-            total_paid: totalPaid
-          },
+          stats: { earners: earners.count || 0, advertisers: advertisers.count || 0, live_campaigns: live.count || 0, total_paid: totalPaid },
           interests: (interests.data || []).filter(isActive)
         });
       }
 
       case 'register': {
         const open = await getPlatformFlag('registrations_open');
-        if (open === false || open === 'false') {
-          return sendError(res, 'REGISTRATION_CLOSED', 'New registrations are temporarily closed.', 403);
-        }
+        if (open === false || open === 'false') return sendError(res, 'REGISTRATION_CLOSED', 'New registrations are temporarily closed.', 403);
 
         const { email, password, full_name, gender, role, interests, referral_code } = req.body;
         if (!email || !password || !full_name) return sendError(res, 'VALIDATION_ERROR', 'Missing required fields.', 400);
@@ -75,14 +85,11 @@ module.exports = async (req, res) => {
         const { data, error } = await supabaseAdmin.auth.admin.createUser({
           email, password, email_confirm: true,
           user_metadata: {
-            full_name,
-            gender: gender || null,
-            role: finalRole,
+            full_name, gender: gender || null, role: finalRole,
             interests: finalRole === 'earner' && interests ? interests.join(',') : null,
             referral_code: validReferralCode
           }
         });
-
         if (error) {
           console.error('Supabase create user error:', error);
           return sendError(res, 'REGISTRATION_FAILED', error.message, 400);
@@ -108,9 +115,7 @@ module.exports = async (req, res) => {
       // ---------- AUTHENTICATED ----------
       case 'get-session': {
         const { user, profile } = await getAuthenticatedUser(req);
-        return sendSuccess(res, {
-          profile: { ...profile, email: user.email, email_verified: !!user.email_confirmed_at }
-        });
+        return sendSuccess(res, { profile: { ...profile, email: user.email, email_verified: !!user.email_confirmed_at } });
       }
 
       case 'logout': {
@@ -123,19 +128,16 @@ module.exports = async (req, res) => {
         const { profile } = await getAuthenticatedUser(req);
         const { full_name, phone } = req.body;
         if (!full_name || full_name.trim().length < 2) return sendError(res, 'VALIDATION_ERROR', 'Display name is too short.', 400);
-
         let cleanPhone = null;
         if (phone && phone.trim() !== '') {
           cleanPhone = phone.replace(/[\s\-()]/g, '');
           if (!/^\+?\d{10,14}$/.test(cleanPhone)) return sendError(res, 'VALIDATION_ERROR', 'Invalid phone number format.', 400);
         }
-
         const { data, error } = await q(() => supabaseAdmin.from('profiles')
           .update({ full_name: full_name.trim(), phone: cleanPhone, updated_at: new Date().toISOString() })
           .eq('id', profile.id)
           .select('id, full_name, role, is_suspended, created_at, referral_code, phone, avatar_url')
           .single());
-
         if (error) throw error;
         return sendSuccess(res, { profile: data }, 'Profile updated.');
       }
@@ -144,12 +146,10 @@ module.exports = async (req, res) => {
         const { profile } = await getAuthenticatedUser(req);
         const { dataUrl } = req.body;
         if (!dataUrl || !dataUrl.startsWith('data:image/')) return sendError(res, 'VALIDATION_ERROR', 'Invalid image data.', 400);
-
         const base64 = dataUrl.split(',')[1];
         if (!base64) return sendError(res, 'VALIDATION_ERROR', 'Empty image.', 400);
         const buffer = Buffer.from(base64, 'base64');
         if (buffer.length > 500 * 1024) return sendError(res, 'FILE_TOO_LARGE', 'Image must be under 500KB.', 400);
-
         const path = `${profile.id}.jpg`;
         let up = await supabaseAdmin.storage.from('avatars').upload(path, buffer, { contentType: 'image/jpeg', upsert: true });
         if (up.error) {
@@ -160,12 +160,10 @@ module.exports = async (req, res) => {
           console.error('Avatar upload error:', up.error);
           throw { code: 'UPLOAD_FAILED', message: 'Storage error: ' + (up.error.message || 'upload failed'), statusCode: 502 };
         }
-
         const { data: pub } = supabaseAdmin.storage.from('avatars').getPublicUrl(path);
         const publicUrl = `${pub.publicUrl}?t=${Date.now()}`;
         const { error: dbErr } = await q(() => supabaseAdmin.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id));
         if (dbErr) throw dbErr;
-
         return sendSuccess(res, { avatar_url: publicUrl }, 'Avatar updated.');
       }
 
@@ -174,13 +172,10 @@ module.exports = async (req, res) => {
         const { currentPassword, newPassword } = req.body;
         if (!currentPassword || !newPassword) return sendError(res, 'VALIDATION_ERROR', 'Both passwords required.', 400);
         if (newPassword.length < 8) return sendError(res, 'VALIDATION_ERROR', 'New password must be at least 8 characters.', 400);
-
         const { error: verifyErr } = await supabaseAdmin.auth.signInWithPassword({ email: user.email, password: currentPassword });
         if (verifyErr) return sendError(res, 'INVALID_PASSWORD', 'Current password is incorrect.', 400);
-
         const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password: newPassword });
         if (updateErr) throw updateErr;
-
         await supabaseAdmin.auth.admin.signOut(user.id, 'global');
         return sendSuccess(res, {}, 'Password changed. Please log in again.');
       }
@@ -193,31 +188,25 @@ module.exports = async (req, res) => {
 
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
-
         const [interestsRes, taskTypesRes, myInterestsRes, hiddenRes] = await Promise.all([
           q(() => supabaseAdmin.from('interests').select('*')),
           q(() => supabaseAdmin.from('task_types').select('*')),
           q(() => supabaseAdmin.from('user_interests').select('interest_id').eq('user_id', profile.id)),
           q(() => supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle())
         ]);
-
         if (interestsRes.error || taskTypesRes.error) {
           const msg = (interestsRes.error && interestsRes.error.message) || (taskTypesRes.error && taskTypesRes.error.message) || 'Unknown DB error';
           return sendError(res, 'SETTINGS_LOAD_FAILED', 'Database temporarily unavailable: ' + msg, 502);
         }
-
         const interests = (interestsRes.data || []).filter(isActive)
           .map(i => ({ id: i.id, name: i.name, category: i.category }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-
         const task_types = (taskTypesRes.data || []).filter(isActive)
           .map(t => ({ id: t.id, name: t.name }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-
         return sendSuccess(res, {
-          version: 'auth-v6',
-          interests,
-          task_types,
+          version: 'auth-v7',
+          interests, task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
           my_hidden_task_ids: (hiddenRes && hiddenRes.data && hiddenRes.data.hidden_task_types) || []
         });
@@ -227,21 +216,12 @@ module.exports = async (req, res) => {
         const { profile } = await getAuthenticatedUser(req);
         requireRole(profile, ['earner']);
         const { interest_ids } = req.body;
-
-        if (!Array.isArray(interest_ids) || interest_ids.length < 3) {
-          return sendError(res, 'VALIDATION_ERROR', 'Select at least 3 interests.', 400);
-        }
-
+        if (!Array.isArray(interest_ids) || interest_ids.length < 3) return sendError(res, 'VALIDATION_ERROR', 'Select at least 3 interests.', 400);
         const { data: valid, error: vErr } = await q(() => supabaseAdmin.from('interests').select('id').in('id', interest_ids));
         if (vErr) throw vErr;
-        if (!valid || valid.length !== interest_ids.length) {
-          return sendError(res, 'VALIDATION_ERROR', 'One or more interests are invalid.', 400);
-        }
-
+        if (!valid || valid.length !== interest_ids.length) return sendError(res, 'VALIDATION_ERROR', 'One or more interests are invalid.', 400);
         await supabaseAdmin.from('user_interests').delete().eq('user_id', profile.id);
-        const { error } = await supabaseAdmin.from('user_interests')
-          .insert(interest_ids.map(id => ({ user_id: profile.id, interest_id: id })));
-
+        const { error } = await supabaseAdmin.from('user_interests').insert(interest_ids.map(id => ({ user_id: profile.id, interest_id: id })));
         if (error) throw error;
         return sendSuccess(res, {}, 'Interests updated. Your task feed will now match.');
       }
@@ -250,21 +230,14 @@ module.exports = async (req, res) => {
         const { profile } = await getAuthenticatedUser(req);
         requireRole(profile, ['earner']);
         const { hidden_task_type_ids } = req.body;
-
-        if (!Array.isArray(hidden_task_type_ids)) {
-          return sendError(res, 'VALIDATION_ERROR', 'Invalid preference list.', 400);
-        }
-
+        if (!Array.isArray(hidden_task_type_ids)) return sendError(res, 'VALIDATION_ERROR', 'Invalid preference list.', 400);
         let clean = hidden_task_type_ids;
         if (clean.length > 0) {
           const { data: valid } = await q(() => supabaseAdmin.from('task_types').select('id').in('id', clean));
           clean = (valid || []).map(t => t.id);
         }
-
         const { error } = await q(() => supabaseAdmin.from('profiles')
-          .update({ hidden_task_types: clean, updated_at: new Date().toISOString() })
-          .eq('id', profile.id));
-
+          .update({ hidden_task_types: clean, updated_at: new Date().toISOString() }).eq('id', profile.id));
         if (error) throw error;
         return sendSuccess(res, {}, 'Task preferences saved.');
       }
@@ -279,8 +252,7 @@ module.exports = async (req, res) => {
 
       case 'mark_notifications_read': {
         const { profile } = await getAuthenticatedUser(req);
-        await q(() => supabaseAdmin.from('notifications').update({ is_read: true })
-          .eq('user_id', profile.id).eq('is_read', false));
+        await q(() => supabaseAdmin.from('notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false));
         return sendSuccess(res, {}, 'Marked as read.');
       }
 
