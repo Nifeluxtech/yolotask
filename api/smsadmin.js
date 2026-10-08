@@ -28,6 +28,48 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { balance_usd: balance });
       }
 
+      // ---------- DASHBOARD SUMMARY ----------
+      case 'get_sms_stats': {
+        const [settingsRes, servicesRes, verRes] = await Promise.all([
+          supabaseAdmin.from('platform_settings').select('key, value').in('key', Object.keys(SMS_SETTING_RULES)),
+          supabaseAdmin.from('sms_services').select('id').eq('is_active', true),
+          supabaseAdmin.from('sms_verifications').select('user_id, service_name, status, charged_ngn, refunded, created_at')
+            .order('created_at', { ascending: false }).limit(500)
+        ]);
+
+        const map = {};
+        (settingsRes.data || []).forEach(r => { map[r.key] = r.value; });
+        const enabled = map.sms_enabled === true || map.sms_enabled === 'true';
+
+        const rows = verRes.data || [];
+        const total = rows.length;
+        const verified = rows.filter(r => r.status === 'VERIFIED').length;
+        const failed = rows.filter(r => r.status === 'FAILED' || r.status === 'CANCELLED').length;
+        const active = rows.filter(r => r.status === 'ACTIVE').length;
+        const revenue = rows
+          .filter(r => r.status === 'VERIFIED' || (r.status === 'ACTIVE' && !r.refunded))
+          .reduce((s, r) => s + Number(r.charged_ngn || 0), 0);
+
+        // Recent 5 with user names
+        const recent = rows.slice(0, 5);
+        let recentEnriched = recent;
+        if (recent.length > 0) {
+          const userIds = [...new Set(recent.map(r => r.user_id))];
+          const { data: users } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', userIds);
+          const nameMap = new Map((users || []).map(u => [u.id, u.full_name]));
+          recentEnriched = recent.map(r => ({ ...r, user_name: nameMap.get(r.user_id) || 'Unknown' }));
+        }
+
+        return sendSuccess(res, {
+          enabled,
+          services_active: (servicesRes.data || []).length,
+          total, verified, failed, active,
+          revenue_ngn: revenue,
+          success_rate: total ? Math.round((verified / total) * 100) : 0,
+          recent: recentEnriched
+        });
+      }
+
       case 'get_settings': {
         const { data } = await supabaseAdmin.from('platform_settings').select('key, value')
           .in('key', Object.keys(SMS_SETTING_RULES));
