@@ -30,6 +30,39 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { stats });
       }
 
+      // ---------- STORAGE HYGIENE: delete proofs of decided tasks ----------
+      case 'purge_decided_proofs': {
+        const { data: rows, error } = await supabaseAdmin
+          .from('task_submissions')
+          .select('id, proof_url')
+          .in('status', ['APPROVED', 'REJECTED'])
+          .not('proof_url', 'is', null)
+          .limit(100);
+
+        if (error) throw error;
+        if (!rows || rows.length === 0) return sendSuccess(res, { purged: 0 });
+
+        const paths = rows
+          .map(r => {
+            try { return decodeURIComponent(r.proof_url.split('/proofs/').pop().split('?')[0]); } catch (e) { return null; }
+          })
+          .filter(p => p && p.endsWith('.jpg'));
+
+        let purged = 0;
+        if (paths.length > 0) {
+          const { error: rmErr } = await supabaseAdmin.storage.from('proofs').remove(paths);
+          if (rmErr) console.error('purge storage error:', rmErr);
+          else purged = paths.length;
+        }
+
+        await supabaseAdmin
+          .from('task_submissions')
+          .update({ proof_url: null })
+          .in('id', rows.map(r => r.id));
+
+        return sendSuccess(res, { purged }, `Purged ${purged} decided proof images.`);
+      }
+
       // ---------- PLATFORM CATALOG ----------
       case 'get_platforms': {
         const { data, error } = await supabaseAdmin
@@ -67,13 +100,11 @@ module.exports = async (req, res) => {
       case 'delete_platform': {
         const { id } = req.body;
         if (!id) return sendError(res, 'VALIDATION_ERROR', 'Platform ID required.', 400);
-        // campaigns.platform_id is ON DELETE SET NULL → old campaigns become "Other"
         const { error } = await supabaseAdmin.from('platforms').delete().eq('id', id);
         if (error) throw error;
         return sendSuccess(res, {}, 'Platform removed. Its campaigns now show as Other.');
       }
 
-      // ---------- TASK TYPE CATALOG ----------
       case 'get_task_types': {
         const { data, error } = await supabaseAdmin.from('task_types').select('*').order('name');
         if (error) throw error;
@@ -119,7 +150,7 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Task type updated.');
       }
 
-      // ---------- EXISTING ADMIN TOOLS ----------
+      // ---------- CORE ADMIN TOOLS ----------
       case 'get_campaigns_for_review': {
         const { data } = await supabaseAdmin
           .from('campaigns')
@@ -243,7 +274,7 @@ module.exports = async (req, res) => {
 
       case 'get_escalated_tasks': {
         const { data } = await supabaseAdmin.from('task_submissions')
-          .select('id, campaign_id, earner_id, proof_url, created_at, campaign:campaign_id(title, advertiser_id), earner:earner_id(full_name, referral_code)')
+          .select('id, campaign_id, earner_id, proof_url, status, created_at, comment, campaign:campaign_id(title, advertiser_id), earner:earner_id(full_name, referral_code)')
           .eq('status', 'UNDER_REVIEW').order('created_at', { ascending: false });
         return sendSuccess(res, { tasks: data || [] });
       }
