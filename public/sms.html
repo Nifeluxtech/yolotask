@@ -61,7 +61,7 @@
     <div class="modal-box">
       <h3 style="margin-bottom:6px;">Verify <span id="mSvcName"></span></h3>
       <div style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">Country: <strong id="mCountry" style="color:var(--text-primary);"></strong></div>
-      <p style="font-size:14px; margin-bottom:14px;">Live price: <strong id="mPrice" style="color:var(--success);">fetching…</strong></p>
+      <p style="font-size:15px; margin-bottom:14px;">Price: <strong id="mPrice" style="color:var(--success);">fetching…</strong></p>
       <label class="f-label">Social username / handle (optional)</label>
       <input type="text" id="mUsername" class="f-input" placeholder="@yourhandle" />
       <div style="display:flex; gap:10px; justify-content:flex-end;">
@@ -80,8 +80,8 @@
     let services = [];
     let pollTimer = null;
     let activeId = null;
-    let session = null; // { number, serviceName, countryName }
-    let pending = null; // { service, quote }
+    let session = null;
+    let pending = null;
 
     function flagEmoji(short) {
       if (!short || short.length !== 2) return '🌍';
@@ -190,7 +190,8 @@
       try {
         const q = await apiClient.request('sms.js', { action: 'get_quote', serviceId, countryId });
         pending.quote = q.data;
-        document.getElementById('mPrice').textContent = `${formatCurrency(q.data.price_ngn)}  (pool cost $${Number(q.data.price_usd).toFixed(2)})`;
+        // ₦ ONLY — no USD cost shown anywhere
+        document.getElementById('mPrice').textContent = formatCurrency(q.data.price_ngn);
         document.getElementById('mStartBtn').disabled = false;
       } catch (err) {
         document.getElementById('mPrice').textContent = err.message;
