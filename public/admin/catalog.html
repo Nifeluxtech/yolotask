@@ -19,6 +19,7 @@
       <a href="/admin/escalated.html">⚠️ Escalated</a>
       <a href="/admin/withdrawals.html">💸 Withdrawals</a>
       <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/announcements.html">📢 Announcements</a>
       <a href="/admin/settings.html">⚙️ Settings</a>
       <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
     </aside>
@@ -34,7 +35,7 @@
       <!-- PLATFORMS -->
       <div class="panel">
         <h3>📱 Platforms (Social Apps)</h3>
-        <div style="display:grid; grid-template-columns:2fr 2fr auto; gap:10px; margin-bottom:16px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:10px; margin-bottom:16px;">
           <input type="text" id="platName" class="f-input" style="margin:0;" placeholder="Platform name (e.g. Snapchat)" />
           <input type="url" id="platLogo" class="f-input" style="margin:0;" placeholder="Logo image URL (optional)" />
           <button class="btn btn-primary" style="padding:10px 18px; font-size:13px;" id="addPlatBtn">Add</button>
@@ -51,8 +52,8 @@
           <input type="number" id="ttBaseReward" class="f-input" style="margin:0;" placeholder="Base earn ₦" min="0" />
           <input type="number" id="ttPremCost" class="f-input" style="margin:0;" placeholder="Premium cost ₦" min="1" />
           <input type="number" id="ttPremReward" class="f-input" style="margin:0;" placeholder="Premium earn ₦" min="0" />
-          <button class="btn btn-primary" style="padding:10px 18px; font-size:13px;" id="addTtBtn">Add</button>
         </div>
+        <button class="btn btn-primary w-full" style="margin-bottom:12px;" id="addTtBtn">Add Task Type</button>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Rule: earner reward must be lower than advertiser cost (the difference is platform margin).</p>
         <div id="ttList"><div class="skeleton skeleton-text"></div></div>
       </div>
@@ -63,19 +64,52 @@
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
+    // ---------- LOUD FAILURE REPORTING ----------
+    function showFatal(msg) {
+      ['platList', 'ttList'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = `
+          <div style="color:var(--error); font-size:13px; line-height:1.6;">
+            <strong>Page error:</strong> ${String(msg).slice(0, 300)}
+            <br/><button class="btn btn-outline" style="margin-top:10px; padding:7px 14px; font-size:12px;" onclick="location.reload()">Retry</button>
+          </div>`;
+      });
+    }
+    window.addEventListener('error', (e) => showFatal(e.message));
+    window.addEventListener('unhandledrejection', (e) => showFatal((e.reason && (e.reason.message || e.reason.code)) || 'Unknown async error'));
+
+    // 12s timeout wrapper so a hung request can never leave skeletons forever
+    function withTimeout(promise, ms, label) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' timed out (no server response in 12s)')), ms))
+      ]);
+    }
+
+    function guard() {
+      if (typeof apiClient === 'undefined') throw new Error('api.js failed to load');
+      if (typeof checkAuthAndRedirect !== 'function') throw new Error('auth.js failed to load');
+    }
+
     (async () => {
-      const profile = await checkAuthAndRedirect('admin');
-      if (!profile) return;
-      loadPlatforms();
-      loadTaskTypes();
+      try {
+        guard();
+        const profile = await withTimeout(checkAuthAndRedirect('admin'), 12000, 'Auth check');
+        if (!profile) return; // redirecting
+        loadPlatforms();
+        loadTaskTypes();
+      } catch (err) {
+        showFatal(err && err.message ? err.message : err);
+      }
     })();
 
     async function loadPlatforms() {
+      const box = document.getElementById('platList');
       try {
-        const res = await apiClient.request('admin.js', { action: 'get_platforms' });
-        const plats = res.data.platforms || [];
-        document.getElementById('platList').innerHTML = plats.length === 0
-          ? '<div style="color:var(--text-secondary); font-size:13px;">No platforms yet.</div>'
+        const res = await withTimeout(apiClient.request('admin.js', { action: 'get_platforms' }), 12000, 'get_platforms');
+        const plats = (res && res.data && res.data.platforms) || [];
+        box.innerHTML = plats.length === 0
+          ? '<div style="color:var(--text-secondary); font-size:13px;">No platforms yet. Add the first one above.</div>'
           : plats.map(p => `
             <div class="row-item">
               <div style="display:flex; align-items:center; gap:12px;">
@@ -92,15 +126,21 @@
               </div>
             </div>`).join('');
       } catch (err) {
-        document.getElementById('platList').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+        box.innerHTML = `
+          <div style="color:var(--error); font-size:13px; line-height:1.6;">
+            <strong>get_platforms failed:</strong> ${escapeHtml(err && err.message ? err.message : String(err))}
+            <br/><span style="color:var(--text-secondary); font-size:12px;">If it mentions "platforms" table missing → run the Catalog SQL in Supabase.</span>
+            <br/><button class="btn btn-outline" style="margin-top:10px; padding:7px 14px; font-size:12px;" onclick="loadPlatforms()">Retry</button>
+          </div>`;
       }
     }
 
     async function loadTaskTypes() {
+      const box = document.getElementById('ttList');
       try {
-        const res = await apiClient.request('admin.js', { action: 'get_task_types' });
-        const types = res.data.task_types || [];
-        document.getElementById('ttList').innerHTML = types.length === 0
+        const res = await withTimeout(apiClient.request('admin.js', { action: 'get_task_types' }), 12000, 'get_task_types');
+        const types = (res && res.data && res.data.task_types) || [];
+        box.innerHTML = types.length === 0
           ? '<div style="color:var(--text-secondary); font-size:13px;">No task types yet.</div>'
           : types.map(t => `
             <div class="row-item">
@@ -114,7 +154,11 @@
               </div>
             </div>`).join('');
       } catch (err) {
-        document.getElementById('ttList').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+        box.innerHTML = `
+          <div style="color:var(--error); font-size:13px; line-height:1.6;">
+            <strong>get_task_types failed:</strong> ${escapeHtml(err && err.message ? err.message : String(err))}
+            <br/><button class="btn btn-outline" style="margin-top:10px; padding:7px 14px; font-size:12px;" onclick="loadTaskTypes()">Retry</button>
+          </div>`;
       }
     }
 
@@ -159,10 +203,10 @@
           premium_earner_reward: Number(document.getElementById('ttPremReward').value)
         });
         showToast('Task type added.', 'success');
-        ['ttName','ttBaseCost','ttBaseReward','ttPremCost','ttPremReward'].forEach(i => document.getElementById(i).value = '');
+        ['ttName', 'ttBaseCost', 'ttBaseReward', 'ttPremCost', 'ttPremReward'].forEach(i => document.getElementById(i).value = '');
         loadTaskTypes();
       } catch (err) { showToast(err.message, 'error'); }
-    };
+    });
 
     window.toggleTt = async function (id, active) {
       try {
@@ -172,4 +216,4 @@
     };
   </script>
 </body>
-  </html>
+</html>
