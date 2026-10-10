@@ -11,6 +11,7 @@
     .diag-row { font-family: monospace; font-size: 11px; line-height: 1.6; padding: 8px 10px; border-radius: 8px; background: var(--bg-primary); border: 1px solid var(--border); margin-bottom: 6px; word-break: break-all; }
     .diag-ok { border-color: var(--success); color: var(--success); }
     .diag-fail { border-color: var(--error); color: var(--text-secondary); }
+    .bal-grid { display: flex; gap: 10px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -31,15 +32,18 @@
     <main class="admin-main">
       <header class="admin-header">
         <div class="page-title">SMS Verification Control</div>
-        <span class="badge cyan" id="balBadge">Balance: …</span>
+        <div class="bal-grid">
+          <span class="badge cyan" id="balSp">SMSPool: …</span>
+          <span class="badge cyan" id="balFs">5sim: …</span>
+        </div>
       </header>
 
       <div class="panel" id="balanceWarn" style="display:none; border-color:var(--error); background:var(--error-bg); color:var(--error); font-size:13px; font-weight:600;">
-        ⚠️ SMSPool balance is $0.00 — top up your SMSPool account or number orders will fail.
+        ⚠️ One or both provider balances are $0.00 / unreachable — top up before going live.
       </div>
 
       <div class="panel">
-        <h3>Settings (users see the FULL live SMSPool catalog)</h3>
+        <h3>Settings (users see live catalogs from both providers)</h3>
         <div class="toggle-row">
           <div>
             <div style="font-weight:600; font-size:14px;">SMS Verification Enabled</div>
@@ -56,8 +60,7 @@
       </div>
 
       <div class="panel" style="border-color:var(--warning);">
-        <h3>🩺 SMSPool Connection Diagnostics</h3>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Prints SMSPool's exact reply for every endpoint we use.</p>
+        <h3>🩺 SMSPool Diagnostics</h3>
         <button class="btn btn-outline" style="padding:9px 18px; font-size:13px;" id="diagBtn">Run Diagnostics</button>
         <div id="diagBox" style="margin-top:12px;"></div>
       </div>
@@ -80,17 +83,22 @@
     })();
 
     async function loadBalance() {
-      const badge = document.getElementById('balBadge');
+      const sp = document.getElementById('balSp');
+      const fs = document.getElementById('balFs');
+      let warn = false;
       try {
         const r = await apiClient.request('smsadmin.js', { action: 'get_balance' });
-        const bal = Number(r.data.balance_usd);
-        badge.textContent = 'SMSPool Balance: $' + bal.toFixed(2);
-        badge.className = 'badge ' + (bal > 0 ? 'green' : 'red');
-        document.getElementById('balanceWarn').style.display = bal <= 0 ? 'block' : 'none';
+        const d = r.data;
+        if (d.smspool_usd === null) { sp.textContent = 'SMSPool: ERR'; sp.className = 'badge red'; warn = true; }
+        else { sp.textContent = 'SMSPool: $' + Number(d.smspool_usd).toFixed(2); sp.className = 'badge ' + (d.smspool_usd > 0 ? 'green' : 'red'); if (d.smspool_usd <= 0) warn = true; }
+        if (d.fivesim_usd === null) { fs.textContent = '5sim: ERR'; fs.className = 'badge red'; warn = true; }
+        else { fs.textContent = '5sim: $' + Number(d.fivesim_usd).toFixed(2); fs.className = 'badge ' + (d.fivesim_usd > 0 ? 'green' : 'red'); if (d.fivesim_usd <= 0) warn = true; }
       } catch (err) {
-        badge.textContent = 'Balance error: ' + (err.message || '').slice(0, 50);
-        badge.className = 'badge red';
+        sp.textContent = 'SMSPool: ERR'; fs.textContent = '5sim: ERR';
+        sp.className = 'badge red'; fs.className = 'badge red';
+        warn = true;
       }
+      document.getElementById('balanceWarn').style.display = warn ? 'block' : 'none';
     }
 
     async function loadSettings() {
@@ -122,15 +130,14 @@
     document.getElementById('diagBtn').addEventListener('click', async () => {
       const btn = document.getElementById('diagBtn');
       const box = document.getElementById('diagBox');
-      btn.disabled = true; btn.textContent = 'Probing SMSPool...';
+      btn.disabled = true; btn.textContent = 'Probing…';
       box.innerHTML = '';
       try {
         const r = await apiClient.request('smsadmin.js', { action: 'debug_smspool' });
-        const report = r.data.report || [];
-        box.innerHTML = report.map(row => `
+        box.innerHTML = (r.data.report || []).map(row => `
           <div class="diag-row ${row.result === 'OK' ? 'diag-ok' : 'diag-fail'}">
             [${row.result}] ${row.op} ${row.path} → HTTP ${row.http}<br/>${escapeHtml(row.snippet)}
-          </div>`).join('') || '<div class="diag-row">No report returned.</div>';
+          </div>`).join('');
       } catch (err) {
         box.innerHTML = `<div class="diag-row diag-fail">${escapeHtml(err.message || String(err))}</div>`;
       }
@@ -143,13 +150,14 @@
         const list = r.data.verifications || [];
         document.getElementById('auditWrap').innerHTML = list.length === 0
           ? '<div style="color:var(--text-secondary); font-size:13px;">No verifications yet.</div>'
-          : `<table class="admin-table"><thead><tr><th>User</th><th>Service</th><th>Country</th><th>Number</th><th>Charged</th><th>Status</th><th>When</th></tr></thead><tbody>
+          : `<table class="admin-table"><thead><tr><th>User</th><th>Provider</th><th>Service</th><th>Country</th><th>Charged</th><th>Cost</th><th>Status</th><th>When</th></tr></thead><tbody>
             ${list.map(v => `<tr>
               <td>${escapeHtml(v.user_name)}</td>
+              <td>${v.provider === 'fivesim' ? '💸 5sim' : '🛡️ SMSPool'}</td>
               <td>${escapeHtml(v.service_name || '')}</td>
               <td>${escapeHtml(v.country_name || '')}</td>
-              <td style="font-size:12px;">${escapeHtml(v.phone_number || '')}</td>
               <td>${formatCurrency(v.charged_ngn)}${v.refunded ? ' ↩' : ''}</td>
+              <td style="font-size:12px;">$${Number(v.cost_usd || 0).toFixed(2)}</td>
               <td><span class="badge ${v.status === 'VERIFIED' ? 'green' : v.status === 'ACTIVE' ? 'amber' : 'red'}">${v.status}</span></td>
               <td style="font-size:12px; color:var(--text-secondary);">${formatDate(v.created_at)}</td>
             </tr>`).join('')}
