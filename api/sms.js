@@ -10,14 +10,15 @@ const ACTIVE_TIMEOUT_MIN = 20;
 
 async function getSettings() {
   const { data } = await supabaseAdmin.from('platform_settings').select('key, value')
-    .in('key', ['sms_enabled', 'sms_usd_to_ngn_rate', 'sms_markup', 'sms_price_tier']);
+    .in('key', ['sms_enabled', 'sms_usd_to_ngn_rate', 'sms_markup', 'sms_price_tier', 'fivesim_operator']);
   const map = {};
   (data || []).forEach(r => { map[r.key] = r.value; });
   return {
     enabled: map.sms_enabled === true || map.sms_enabled === 'true',
     rate: Number(map.sms_usd_to_ngn_rate ?? 1600),
     markup: Number(map.sms_markup ?? 1.5),
-    tier: Number(map.sms_price_tier ?? 2)
+    tier: Number(map.sms_price_tier ?? 2),
+    fivesim_operator: String(map.fivesim_operator || 'virtual8').trim()
   };
 }
 
@@ -37,9 +38,9 @@ async function refundUser(userId, amount, verificationId) {
   });
 }
 
-async function quoteFor(provider, countryKey, serviceKey) {
+async function quoteFor(provider, countryKey, serviceKey, fivesimOperator) {
   if (provider === 'fivesim') {
-    return await fivesim.getQuote(countryKey, serviceKey); // {cost, operator} or null
+    return await fivesim.getQuote(countryKey, serviceKey, fivesimOperator);
   }
   const priceUsd = await smspool.getQuote(serviceKey, countryKey);
   return priceUsd ? { cost: priceUsd, operator: null } : null;
@@ -73,7 +74,7 @@ module.exports = async (req, res) => {
 
         if (provider === 'fivesim') {
           if (!countryKey) return sendSuccess(res, { services: [] });
-          const services = await fivesim.getServicesForCountry(countryKey);
+          const services = await fivesim.getServicesForCountry(countryKey, s.fivesim_operator);
           return sendSuccess(res, { services });
         }
         const services = await smspool.getServices();
@@ -87,7 +88,7 @@ module.exports = async (req, res) => {
         const { countryKey, serviceKey } = req.body;
         if (!countryKey || !serviceKey) return sendError(res, 'VALIDATION_ERROR', 'Country and service are required.', 400);
 
-        const q = await quoteFor(provider, countryKey, serviceKey);
+        const q = await quoteFor(provider, countryKey, serviceKey, s.fivesim_operator);
         if (!q || !q.cost) {
           return sendError(res, 'NO_POOLS',
             provider === 'fivesim'
@@ -114,7 +115,7 @@ module.exports = async (req, res) => {
           .eq('user_id', profile.id).eq('status', 'ACTIVE').maybeSingle();
         if (active) return sendError(res, 'SMS_ACTIVE_EXISTS', 'You already have a verification in progress.', 400);
 
-        const q = await quoteFor(provider, countryKey, serviceKey);
+        const q = await quoteFor(provider, countryKey, serviceKey, s.fivesim_operator);
         if (!q || !q.cost) return sendError(res, 'NO_POOLS', 'No numbers available for this combination right now.', 400);
 
         const charge = priceNgn(q.cost, s);
@@ -131,7 +132,7 @@ module.exports = async (req, res) => {
         let orderInfo;
         try {
           if (provider === 'fivesim') {
-            const o = await fivesim.buy(countryKey, q.operator || 'any', serviceKey);
+            const o = await fivesim.buy(countryKey, q.operator || s.fivesim_operator, serviceKey);
             orderInfo = { orderId: String(o.id), number: String(o.phone), realCost: Number(o.price ?? q.cost) };
           } else {
             const o = await smspool.orderNumber({ serviceId: serviceKey, countryId: countryKey, maxPrice: q.cost });
@@ -165,7 +166,7 @@ module.exports = async (req, res) => {
         if (provider === 'fivesim') {
           rowPayload.country_slug = String(countryKey);
           rowPayload.service_slug = String(serviceKey);
-          rowPayload.operator_slug = q.operator || 'any';
+          rowPayload.operator_slug = q.operator || s.fivesim_operator;
         } else {
           rowPayload.smspool_service_id = Number(serviceKey);
           rowPayload.country_id = Number(countryKey);
