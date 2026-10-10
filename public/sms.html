@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/css/admin.css" />
   <style>
     .prov-seg { display: flex; gap: 10px; margin-bottom: 16px; }
-    .prov-btn { flex: 1; padding: 14px 10px; border-radius: 16px; border: 2px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font-weight: 800; font-size: 14px; cursor: pointer; transition: .2s; }
+    .prov-btn { flex: 1; padding: 14px 10px; border-radius: 16px; border: 2px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font-weight: 800; font-size: 16px; cursor: pointer; transition: .2s; }
     .prov-btn.active-cheap { border-color: var(--success); background: var(--success-bg); color: var(--success); }
     .prov-btn.active-std { border-color: var(--accent); background: var(--accent-glow); color: var(--accent); }
     .flip-scene { perspective: 1800px; }
@@ -50,8 +50,8 @@
 
     <!-- PROVIDER FLIP TOGGLE -->
     <div class="prov-seg">
-      <button class="prov-btn active-cheap" id="btnCheap" onclick="setProvider('fivesim')">💸 Cheap<br/><span style="font-size:10px; font-weight:600; opacity:.8;">5sim network</span></button>
-      <button class="prov-btn" id="btnStd" onclick="setProvider('smspool')">🛡️ Standard<br/><span style="font-size:10px; font-weight:600; opacity:.8;">SMSPool premium</span></button>
+      <button class="prov-btn active-cheap" id="btnCheap" onclick="setProvider('fivesim')">💸 Cheap</button>
+      <button class="prov-btn" id="btnStd" onclick="setProvider('smspool')">🛡️ Standard</button>
     </div>
 
     <div class="flip-scene">
@@ -143,7 +143,7 @@
         E.country.innerHTML = '<option value="">— Select country —</option>' +
           state[p].countries.map(c => `<option value="${escapeHtml(String(c.slug ?? c.id))}" data-short="${escapeHtml(c.short || '')}">${c.short ? flagEmoji(c.short) + ' ' : ''}${escapeHtml(c.name)}</option>`).join('');
         E.country.onchange = () => onCountryChange(p);
-        if (p === 'smspool') loadServices(p); // global list
+        if (p === 'smspool') loadServices(p);
       } catch (err) {
         E.country.innerHTML = `<option value="">Failed: ${escapeHtml(err.message).slice(0, 30)}</option>`;
       }
@@ -230,7 +230,7 @@
       pending = { provider: p, countryKey, countryName, serviceKey, serviceName, quote: null };
       document.getElementById('mSvcName').textContent = serviceName;
       document.getElementById('mCountry').textContent = countryName;
-      document.getElementById('mProvider').textContent = p === 'fivesim' ? '💸 CHEAP • 5sim' : '🛡️ STANDARD • SMSPool';
+      document.getElementById('mProvider').textContent = p === 'fivesim' ? '💸 CHEAP' : '🛡️ STANDARD';
       document.getElementById('mPrice').textContent = 'fetching…';
       document.getElementById('mStartBtn').disabled = true;
       document.getElementById('mUsername').value = '';
