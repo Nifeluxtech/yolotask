@@ -8,14 +8,23 @@
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
   <style>
-    .step-label { font-size: 15px; font-weight: 800; margin: 18px 0 10px; }
-    .pick-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 14px; padding: 4px 12px; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .pick-box select, .pick-box input { flex: 1; background: transparent; border: none; color: var(--text-primary); padding: 13px 4px; font-size: 14px; outline: none; }
+    .prov-seg { display: flex; gap: 10px; margin-bottom: 16px; }
+    .prov-btn { flex: 1; padding: 14px 10px; border-radius: 16px; border: 2px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font-weight: 800; font-size: 14px; cursor: pointer; transition: .2s; }
+    .prov-btn.active-cheap { border-color: var(--success); background: var(--success-bg); color: var(--success); }
+    .prov-btn.active-std { border-color: var(--accent); background: var(--accent-glow); color: var(--accent); }
+    .flip-scene { perspective: 1800px; }
+    .flip-card { position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.25,.8,.25,1); min-height: 430px; }
+    .flip-card.flipped { transform: rotateY(180deg); }
+    .flip-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 18px; padding: 18px; overflow-y: auto; }
+    .flip-face.back { transform: rotateY(180deg); }
+    .step-label { font-size: 13px; font-weight: 800; margin: 12px 0 8px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .5px; }
+    .pick-box { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px; padding: 2px 10px; display: flex; align-items: center; gap: 8px; }
+    .pick-box select, .pick-box input { flex: 1; background: transparent; border: none; color: var(--text-primary); padding: 12px 4px; font-size: 14px; outline: none; }
     .pick-box select option { background: var(--bg-secondary); color: var(--text-primary); }
-    .svc-list { max-height: 260px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-    .svc-item { display: flex; align-items: center; gap: 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; cursor: pointer; font-size: 13px; font-weight: 700; transition: .15s; }
+    .svc-list { max-height: 210px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .svc-item { display: flex; align-items: center; gap: 8px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 10px; cursor: pointer; font-size: 12.5px; font-weight: 700; transition: .15s; }
     .svc-item:hover { border-color: var(--accent); background: var(--accent-glow); }
-    .svc-dot { width: 26px; height: 26px; border-radius: 8px; background: var(--accent-glow); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .svc-dot { width: 24px; height: 24px; border-radius: 7px; background: var(--accent-glow); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
     .session-card { background: var(--bg-secondary); border: 2px solid var(--accent); border-radius: 18px; padding: 22px; margin-bottom: 18px; text-align: center; }
     .session-card.verified { border-color: var(--success); background: var(--success-bg); }
     .session-card.failed { border-color: var(--error); background: var(--error-bg); }
@@ -39,28 +48,43 @@
 
     <div id="sessionArea"></div>
 
-    <div class="step-label">1. Select country</div>
-    <div class="pick-box">
-      <span id="countryFlag" style="font-size:18px;">🌍</span>
-      <select id="countrySelect"><option value="">Loading countries…</option></select>
+    <!-- PROVIDER FLIP TOGGLE -->
+    <div class="prov-seg">
+      <button class="prov-btn active-cheap" id="btnCheap" onclick="setProvider('fivesim')">💸 Cheap<br/><span style="font-size:10px; font-weight:600; opacity:.8;">5sim network</span></button>
+      <button class="prov-btn" id="btnStd" onclick="setProvider('smspool')">🛡️ Standard<br/><span style="font-size:10px; font-weight:600; opacity:.8;">SMSPool premium</span></button>
     </div>
 
-    <div class="step-label">2. Select service</div>
-    <div class="pick-box">
-      <span style="font-size:16px;">🔎</span>
-      <input type="search" id="serviceSearch" placeholder="Search services (Facebook, Telegram, TikTok…)" />
+    <div class="flip-scene">
+      <div class="flip-card" id="flipCard">
+        <!-- FRONT: CHEAP (5sim) -->
+        <div class="flip-face front">
+          <div class="step-label">1. Select country</div>
+          <div class="pick-box"><span id="flagCheap" style="font-size:16px;">🌍</span><select id="countryCheap"><option value="">Loading…</option></select></div>
+          <div class="step-label">2. Select service</div>
+          <div class="pick-box"><span>🔎</span><input type="search" id="searchCheap" placeholder="Search cheap services…" /></div>
+          <div class="svc-list" id="svcCheap"><div style="grid-column:1/-1; color:var(--text-secondary); font-size:12px;">Pick a country first.</div></div>
+        </div>
+        <!-- BACK: STANDARD (SMSPool) -->
+        <div class="flip-face back">
+          <div class="step-label">1. Select country</div>
+          <div class="pick-box"><span id="flagStd" style="font-size:16px;">🌍</span><select id="countryStd"><option value="">Loading…</option></select></div>
+          <div class="step-label">2. Select service</div>
+          <div class="pick-box"><span>🔎</span><input type="search" id="searchStd" placeholder="Search premium services…" /></div>
+          <div class="svc-list" id="svcStd"><div style="grid-column:1/-1; color:var(--text-secondary); font-size:12px;">Loading services…</div></div>
+        </div>
+      </div>
     </div>
-    <div class="svc-list" id="svcList"><div class="skeleton skeleton-card" style="grid-column:1/-1;"></div></div>
 
     <h2 style="font-size:18px; margin:26px 0 12px;">My Verification History</h2>
     <div id="histList"><div class="skeleton skeleton-text"></div></div>
   </main>
 
-  <!-- Quote + start modal -->
+  <!-- Quote modal -->
   <div class="modal-overlay" id="startModal">
     <div class="modal-box">
       <h3 style="margin-bottom:6px;">Verify <span id="mSvcName"></span></h3>
-      <div style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">Country: <strong id="mCountry" style="color:var(--text-primary);"></strong></div>
+      <div style="font-size:13px; color:var(--text-secondary); margin-bottom:4px;">Country: <strong id="mCountry" style="color:var(--text-primary);"></strong></div>
+      <div style="font-size:12px; margin-bottom:10px;"><span class="badge cyan" id="mProvider"></span></div>
       <p style="font-size:15px; margin-bottom:14px;">Price: <strong id="mPrice" style="color:var(--success);">fetching…</strong></p>
       <label class="f-label">Social username / handle (optional)</label>
       <input type="text" id="mUsername" class="f-input" placeholder="@yourhandle" />
@@ -76,16 +100,21 @@
   <script src="/js/ui.js"></script>
   <script>
     const ICONS = { telegram: '✈️', whatsapp: '💬', instagram: '📸', tiktok: '🎵', youtube: '▶️', x: '✖️', twitter: '🐦', facebook: '📘', snapchat: '👻', google: '🔍' };
-    let countries = [];
-    let services = [];
-    let pollTimer = null;
-    let activeId = null;
-    let session = null;
-    let pending = null;
+    const state = {
+      fivesim: { countries: [], services: [], countryKey: '', loaded: false },
+      smspool: { countries: [], services: [], countryKey: '', loaded: false }
+    };
+    let provider = 'fivesim';
+    let pollTimer = null, activeId = null, session = null, pending = null;
 
     function flagEmoji(short) {
       if (!short || short.length !== 2) return '🌍';
       return short.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0)));
+    }
+    function els(p) {
+      return p === 'fivesim'
+        ? { country: document.getElementById('countryCheap'), search: document.getElementById('searchCheap'), svc: document.getElementById('svcCheap'), flag: document.getElementById('flagCheap') }
+        : { country: document.getElementById('countryStd'), search: document.getElementById('searchStd'), svc: document.getElementById('svcStd'), flag: document.getElementById('flagStd') };
     }
 
     (async () => {
@@ -93,8 +122,8 @@
       if (!profile) return;
       if (!['earner', 'advertiser'].includes(profile.role)) { window.location.href = '/'; return; }
       loadBalance();
-      loadCountries();
-      loadServices();
+      loadCatalog('fivesim');
+      loadCatalog('smspool');
       loadHistory();
     })();
 
@@ -105,58 +134,69 @@
       } catch (e) {}
     }
 
-    async function loadCountries() {
-      const sel = document.getElementById('countrySelect');
+    async function loadCatalog(p) {
+      const E = els(p);
       try {
-        const r = await apiClient.request('sms.js', { action: 'get_countries' });
-        if (!r.data.enabled) { sel.innerHTML = '<option value="">SMS verification disabled</option>'; return; }
-        countries = r.data.countries || [];
-        sel.innerHTML = '<option value="">— Select country —</option>' +
-          countries.map(c => `<option value="${c.id}" data-short="${escapeHtml(c.short || '')}">${flagEmoji(c.short)} ${escapeHtml(c.name)}</option>`).join('');
-        sel.addEventListener('change', () => {
-          const opt = sel.selectedOptions[0];
-          document.getElementById('countryFlag').textContent = opt?.value ? flagEmoji(opt.dataset.short) : '🌍';
-        });
+        const r = await apiClient.request('sms.js', { action: 'get_catalog', provider: p });
+        if (!r.data.enabled) { E.country.innerHTML = '<option value="">Disabled</option>'; return; }
+        state[p].countries = r.data.countries || [];
+        E.country.innerHTML = '<option value="">— Select country —</option>' +
+          state[p].countries.map(c => `<option value="${escapeHtml(String(c.slug ?? c.id))}" data-short="${escapeHtml(c.short || '')}">${c.short ? flagEmoji(c.short) + ' ' : ''}${escapeHtml(c.name)}</option>`).join('');
+        E.country.onchange = () => onCountryChange(p);
+        if (p === 'smspool') loadServices(p); // global list
       } catch (err) {
-        sel.innerHTML = `<option value="">Failed: ${escapeHtml(err.message).slice(0, 40)}</option>`;
+        E.country.innerHTML = `<option value="">Failed: ${escapeHtml(err.message).slice(0, 30)}</option>`;
       }
     }
 
-    async function loadServices() {
-      try {
-        const r = await apiClient.request('sms.js', { action: 'get_services' });
-        if (!r.data.enabled) {
-          document.getElementById('svcList').innerHTML = '<div class="panel" style="grid-column:1/-1; text-align:center; color:var(--text-secondary);">SMS verification is currently disabled.</div>';
-          return;
-        }
-        services = r.data.services || [];
-        renderServices('');
+    async function onCountryChange(p) {
+      const E = els(p);
+      const opt = E.country.selectedOptions[0];
+      state[p].countryKey = opt?.value || '';
+      E.flag.textContent = opt?.value ? flagEmoji(opt.dataset.short) : '🌍';
+      if (p === 'fivesim') loadServices(p);
+    }
 
-        const h = await apiClient.request('sms.js', { action: 'get_history' });
-        const active = (h.data.verifications || []).find(v => v.status === 'ACTIVE');
-        if (active) {
-          activeId = active.id;
-          session = { number: active.phone_number, serviceName: active.service_name, countryName: active.country_name };
-          renderSession('ACTIVE', null);
-          startPolling();
-        }
+    async function loadServices(p) {
+      const E = els(p);
+      if (p === 'fivesim' && !state[p].countryKey) {
+        E.svc.innerHTML = '<div style="grid-column:1/-1; color:var(--text-secondary); font-size:12px;">Pick a country first.</div>';
+        return;
+      }
+      E.svc.innerHTML = '<div style="grid-column:1/-1; color:var(--text-secondary); font-size:12px;">Loading…</div>';
+      try {
+        const r = await apiClient.request('sms.js', { action: 'get_services', provider: p, countryKey: state[p].countryKey });
+        state[p].services = r.data.services || [];
+        renderServices(p, '');
       } catch (err) {
-        document.getElementById('svcList').innerHTML = `<div class="panel" style="grid-column:1/-1; color:var(--error);">${escapeHtml(err.message)}</div>`;
+        E.svc.innerHTML = `<div style="grid-column:1/-1; color:var(--error); font-size:12px;">${escapeHtml(err.message).slice(0, 60)}</div>`;
       }
     }
 
-    function renderServices(filter) {
+    function renderServices(p, filter) {
+      const E = els(p);
       const f = filter.toLowerCase().trim();
-      const list = (f ? services.filter(s => s.name.toLowerCase().includes(f)) : services).slice(0, 120);
-      document.getElementById('svcList').innerHTML = list.length === 0
-        ? '<div style="grid-column:1/-1; color:var(--text-secondary); font-size:13px;">No matches.</div>'
-        : list.map(s => `
-          <div class="svc-item" onclick="openStart(${s.smspool_service_id}, '${escapeHtml(s.name).replace(/'/g, "\\'")}')">
-            <span class="svc-dot">${ICONS[s.name.toLowerCase()] || escapeHtml(s.name.charAt(0).toUpperCase())}</span>
-            <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s.name)}</span>
-          </div>`).join('');
+      const list = (f ? state[p].services.filter(s => s.name.toLowerCase().includes(f)) : state[p].services).slice(0, 120);
+      E.svc.innerHTML = list.length === 0
+        ? '<div style="grid-column:1/-1; color:var(--text-secondary); font-size:12px;">No matches.</div>'
+        : list.map(s => {
+            const key = String(s.slug ?? s.smspool_service_id ?? s.id);
+            const stock = s.count !== undefined ? ` <span style="color:var(--success); font-size:10px;">(${s.count})</span>` : '';
+            return `<div class="svc-item" onclick="openStart('${p}', '${escapeHtml(key)}', '${escapeHtml(s.name).replace(/'/g, "\\'")}')">
+              <span class="svc-dot">${ICONS[s.name.toLowerCase()] || escapeHtml(s.name.charAt(0).toUpperCase())}</span>
+              <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s.name)}${stock}</span>
+            </div>`;
+          }).join('');
     }
-    document.getElementById('serviceSearch').addEventListener('input', e => renderServices(e.target.value));
+    document.getElementById('searchCheap').addEventListener('input', e => renderServices('fivesim', e.target.value));
+    document.getElementById('searchStd').addEventListener('input', e => renderServices('smspool', e.target.value));
+
+    window.setProvider = function (p) {
+      provider = p;
+      document.getElementById('flipCard').classList.toggle('flipped', p === 'smspool');
+      document.getElementById('btnCheap').className = 'prov-btn' + (p === 'fivesim' ? ' active-cheap' : '');
+      document.getElementById('btnStd').className = 'prov-btn' + (p === 'smspool' ? ' active-std' : '');
+    };
 
     async function loadHistory() {
       try {
@@ -167,30 +207,38 @@
           : list.map(v => `
             <div class="row-item">
               <div>
-                <div style="font-weight:700; font-size:14px;">${ICONS[(v.service_name || '').toLowerCase()] || '📱'} ${escapeHtml(v.service_name || 'Service')} ${v.country_name ? '• ' + escapeHtml(v.country_name) : ''}</div>
-                <div class="row-sub">${formatDate(v.created_at)} • ${formatCurrency(v.charged_ngn)}${v.refunded ? ' (refunded)' : ''}${v.social_username ? ' • ' + escapeHtml(v.social_username) : ''}</div>
+                <div style="font-weight:700; font-size:14px;">${v.provider === 'fivesim' ? '💸' : '🛡️'} ${escapeHtml(v.service_name || 'Service')} ${v.country_name ? '• ' + escapeHtml(v.country_name) : ''}</div>
+                <div class="row-sub">${formatDate(v.created_at)} • ${formatCurrency(v.charged_ngn)}${v.refunded ? ' (refunded)' : ''}</div>
               </div>
               <span class="badge ${v.status === 'VERIFIED' ? 'green' : v.status === 'ACTIVE' ? 'amber' : 'red'}">${v.status}</span>
             </div>`).join('');
+        const active = list.find(v => v.status === 'ACTIVE');
+        if (active && !activeId) {
+          activeId = active.id;
+          session = { number: active.phone_number, serviceName: active.service_name, countryName: active.country_name, provider: active.provider };
+          renderSession('ACTIVE', null);
+          startPolling();
+        }
       } catch (e) {}
     }
 
-    window.openStart = async function (serviceId, serviceName) {
-      const countryId = document.getElementById('countrySelect').value;
-      if (!countryId) { showToast('Select a country first.', 'error'); return; }
+    window.openStart = async function (p, serviceKey, serviceName) {
+      const countryKey = state[p].countryKey;
+      if (!countryKey) { showToast('Select a country first.', 'error'); return; }
+      const countryName = els(p).country.selectedOptions[0]?.textContent || '';
 
-      pending = { service: { id: serviceId, name: serviceName }, quote: null };
+      pending = { provider: p, countryKey, countryName, serviceKey, serviceName, quote: null };
       document.getElementById('mSvcName').textContent = serviceName;
-      document.getElementById('mCountry').textContent = document.getElementById('countrySelect').selectedOptions[0]?.textContent || '';
+      document.getElementById('mCountry').textContent = countryName;
+      document.getElementById('mProvider').textContent = p === 'fivesim' ? '💸 CHEAP • 5sim' : '🛡️ STANDARD • SMSPool';
       document.getElementById('mPrice').textContent = 'fetching…';
       document.getElementById('mStartBtn').disabled = true;
       document.getElementById('mUsername').value = '';
       document.getElementById('startModal').classList.add('active');
 
       try {
-        const q = await apiClient.request('sms.js', { action: 'get_quote', serviceId, countryId });
+        const q = await apiClient.request('sms.js', { action: 'get_quote', provider: p, countryKey, serviceKey });
         pending.quote = q.data;
-        // ₦ ONLY — no USD cost shown anywhere
         document.getElementById('mPrice').textContent = formatCurrency(q.data.price_ngn);
         document.getElementById('mStartBtn').disabled = false;
       } catch (err) {
@@ -204,18 +252,18 @@
       if (!pending || !pending.quote) return;
       const btn = document.getElementById('mStartBtn');
       btn.disabled = true; btn.textContent = 'Buying number...';
-      const sel = document.getElementById('countrySelect');
       try {
         const r = await apiClient.request('sms.js', {
           action: 'start_verification',
-          serviceId: pending.service.id,
-          serviceName: pending.service.name,
-          countryId: sel.value,
-          countryName: (sel.selectedOptions[0]?.textContent || '').replace(/^[^A-Za-z]+/, '').trim(),
+          provider: pending.provider,
+          countryKey: pending.countryKey,
+          countryName: pending.countryName,
+          serviceKey: pending.serviceKey,
+          serviceName: pending.serviceName,
           social_username: document.getElementById('mUsername').value
         });
         activeId = r.data.verification.id;
-        session = { number: r.data.verification.number, serviceName: r.data.verification.service_name, countryName: r.data.verification.country_name };
+        session = { number: r.data.verification.number, serviceName: r.data.verification.service_name, countryName: r.data.verification.country_name, provider: r.data.verification.provider };
         closeStart();
         loadBalance();
         renderSession('ACTIVE', null);
@@ -232,11 +280,12 @@
       const sName = session?.serviceName || '';
       const cName = session?.countryName || '';
       const number = session?.number || '';
+      const provTag = session?.provider === 'fivesim' ? '💸 Cheap' : '🛡️ Standard';
 
       if (status === 'ACTIVE') {
         area.innerHTML = `
           <div class="session-card">
-            <div style="font-size:13px; color:var(--text-secondary);">Your rented ${escapeHtml(sName)} number (${escapeHtml(cName)})</div>
+            <div style="font-size:12px; color:var(--text-secondary);">${provTag} • ${escapeHtml(sName)} (${escapeHtml(cName)})</div>
             <div class="big-number" id="sessNumber">${escapeHtml(number)}</div>
             <button class="btn btn-outline" style="padding:7px 14px; font-size:12px; margin-bottom:12px;" onclick="copyNumber()">Copy Number</button>
             <div class="spinner"></div>
@@ -298,6 +347,7 @@
           session.number = d.number || session.number;
           session.serviceName = d.service_name || session.serviceName;
           session.countryName = d.country_name || session.countryName;
+          session.provider = d.provider || session.provider;
           if (d.status === 'VERIFIED') { renderSession('VERIFIED', d.otp); activeId = null; }
           else if (d.status === 'FAILED' || d.status === 'CANCELLED') { renderSession('FAILED', null); activeId = null; session = null; }
         } catch (e) { /* keep polling */ }
