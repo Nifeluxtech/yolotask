@@ -1,8 +1,9 @@
-// /api/smsadmin.js — admin control (no service curation; catalog is live from SMSPool)
+// /api/smsadmin.js — admin control for dual-provider SMS
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 const smspool = require('../lib/smspool');
+const fivesim = require('../lib/fivesim');
 
 const SMS_SETTING_RULES = {
   sms_enabled:     { type: 'boolean' },
@@ -29,14 +30,19 @@ module.exports = async (req, res) => {
       }
 
       case 'get_balance': {
-        const balance = await smspool.getBalance();
-        return sendSuccess(res, { balance_usd: balance });
+        const [sp, fs] = await Promise.allSettled([smspool.getBalance(), fivesim.getBalance()]);
+        return sendSuccess(res, {
+          smspool_usd: sp.status === 'fulfilled' ? sp.value : null,
+          fivesim_usd: fs.status === 'fulfilled' ? fs.value : null,
+          smspool_error: sp.status === 'rejected' ? String(sp.reason?.message || sp.reason).slice(0, 80) : null,
+          fivesim_error: fs.status === 'rejected' ? String(fs.reason?.message || fs.reason).slice(0, 80) : null
+        });
       }
 
       case 'get_sms_stats': {
         const [settingsRes, verRes] = await Promise.all([
           supabaseAdmin.from('platform_settings').select('key, value').in('key', Object.keys(SMS_SETTING_RULES)),
-          supabaseAdmin.from('sms_verifications').select('user_id, service_name, country_name, status, charged_ngn, refunded, created_at')
+          supabaseAdmin.from('sms_verifications').select('user_id, service_name, country_name, provider, status, charged_ngn, refunded, created_at')
             .order('created_at', { ascending: false }).limit(500)
         ]);
         const map = {};
