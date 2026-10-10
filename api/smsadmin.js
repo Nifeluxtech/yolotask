@@ -9,7 +9,8 @@ const SMS_SETTING_RULES = {
   sms_enabled:     { type: 'boolean' },
   sms_usd_to_ngn_rate: { type: 'number', min: 100, max: 100000 },
   sms_markup:      { type: 'number', min: 1, max: 10 },
-  sms_price_tier:  { type: 'number', min: 1, max: 3 }
+  sms_price_tier:  { type: 'number', min: 1, max: 3 },
+  fivesim_operator: { type: 'string', min: 1, max: 50 }
 };
 
 module.exports = async (req, res) => {
@@ -89,6 +90,11 @@ module.exports = async (req, res) => {
           const rule = SMS_SETTING_RULES[key];
           if (!rule) return sendError(res, 'VALIDATION_ERROR', `Unknown setting: ${key}`, 400);
           if (rule.type === 'boolean') rows.push({ key, value: !!raw });
+          else if (rule.type === 'string') {
+            const str = String(raw).trim();
+            if (str.length < rule.min || str.length > rule.max) return sendError(res, 'VALIDATION_ERROR', `${key} must be between ${rule.min} and ${rule.max} characters.`, 400);
+            rows.push({ key, value: str });
+          }
           else {
             const num = Number(raw);
             if (isNaN(num) || num < rule.min || num > rule.max) return sendError(res, 'VALIDATION_ERROR', `${key} must be between ${rule.min} and ${rule.max}.`, 400);
