@@ -1,4 +1,4 @@
-// /api/sms.js — dual-provider SMS verification (5sim = cheap, SMSPool = standard)
+// /api/sms.js — dual-provider SMS verification (race-safe refunds)
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
@@ -36,6 +36,20 @@ async function refundUser(userId, amount, verificationId) {
     user_id: userId, transaction_type: 'SMS_VERIFICATION_REFUND', amount,
     direction: 'CREDIT', status: 'COMPLETED', reference: 'SMSREF-' + verificationId
   });
+}
+
+/**
+ * ATOMIC CLAIM: flips ACTIVE→final status exactly once.
+ * Returns the row only for the request that won the race (the only one allowed to refund).
+ */
+async function claimCancellation(rowId, finalStatus) {
+  const { data } = await supabaseAdmin.from('sms_verifications')
+    .update({ status: finalStatus, refunded: true, updated_at: new Date().toISOString() })
+    .eq('id', rowId)
+    .eq('status', 'ACTIVE')
+    .eq('refunded', false)
+    .select();
+  return data && data.length ? data[0] : null;
 }
 
 async function quoteFor(provider, countryKey, serviceKey, fivesimOperator) {
@@ -182,8 +196,11 @@ module.exports = async (req, res) => {
 
         return sendSuccess(res, {
           verification: {
-            id: row.id, number: row.number, service_name: row.service_name,
-            country_name: row.country_name, provider, charged_ngn: charge, status: 'ACTIVE'
+            id: row.id,
+            number: row.phone_number,   // FIXED: was row.number (undefined)
+            service_name: row.service_name,
+            country_name: row.country_name,
+            provider, charged_ngn: charge, status: 'ACTIVE'
           }
         }, `Number assigned. ${charge.toLocaleString()} NGN charged.`);
       }
@@ -225,13 +242,11 @@ module.exports = async (req, res) => {
         }
 
         if (state === 'RECEIVED') {
-          // 5sim: smsText is already the clean activation code. SMSPool: raw SMS text → extract digits.
           const otp = row.provider === 'fivesim'
             ? String(smsText).trim().slice(0, 12)
             : (smspool.extractOtp(smsText) || String(smsText).trim().slice(0, 10));
 
           if (!otp) {
-            // Safety net: never verify with an empty code
             return sendSuccess(res, { status: 'ACTIVE', otp: null, number: row.phone_number, service_name: row.service_name, country_name: row.country_name, provider: row.provider });
           }
 
@@ -243,13 +258,18 @@ module.exports = async (req, res) => {
         }
 
         if (state === 'CANCELLED') {
-          if (row.provider === 'fivesim') await fivesim.cancel(row.smspool_order_id);
-          else await smspool.cancelOrder(row.smspool_order_id);
-          await refundUser(profile.id, Number(row.charged_ngn), row.id);
-          await supabaseAdmin.from('sms_verifications')
-            .update({ status: 'FAILED', refunded: true, updated_at: new Date().toISOString() }).eq('id', row.id);
-          await sendNotification(profile.id, 'SMS Verification Failed', `No code received for ${row.service_name}. Your wallet has been refunded.`, 'WALLET');
-          return sendSuccess(res, { status: 'FAILED', otp: null, number: row.phone_number, refunded: true, service_name: row.service_name, country_name: row.country_name, provider: row.provider });
+          // RACE-SAFE: only the request that wins the claim refunds
+          const claimed = await claimCancellation(row.id, 'FAILED');
+          if (claimed) {
+            if (claimed.provider === 'fivesim') await fivesim.cancel(claimed.smspool_order_id);
+            else await smspool.cancelOrder(claimed.smspool_order_id);
+            await refundUser(claimed.user_id, Number(claimed.charged_ngn), claimed.id);
+            await sendNotification(claimed.user_id, 'SMS Verification Failed', `No code received for ${claimed.service_name}. Your wallet has been refunded.`, 'WALLET');
+            return sendSuccess(res, { status: 'FAILED', otp: null, number: claimed.phone_number, refunded: true, service_name: claimed.service_name, country_name: claimed.country_name, provider: claimed.provider });
+          }
+          // Lost the race (user already cancelled): return the fresh truth
+          const { data: fresh } = await supabaseAdmin.from('sms_verifications').select('*').eq('id', row.id).single();
+          return sendSuccess(res, { status: fresh.status, otp: fresh.otp, number: fresh.phone_number, refunded: fresh.refunded, service_name: fresh.service_name, country_name: fresh.country_name, provider: fresh.provider });
         }
 
         return sendSuccess(res, { status: 'ACTIVE', otp: null, number: row.phone_number, service_name: row.service_name, country_name: row.country_name, provider: row.provider });
@@ -260,15 +280,16 @@ module.exports = async (req, res) => {
         const { data: row } = await supabaseAdmin.from('sms_verifications').select('*')
           .eq('id', verificationId).eq('user_id', profile.id).maybeSingle();
         if (!row) return sendError(res, 'NOT_FOUND', 'Verification not found.', 404);
-        if (row.status !== 'ACTIVE') return sendError(res, 'VALIDATION_ERROR', 'Only active verifications can be cancelled.', 400);
+        if (row.status !== 'ACTIVE') return sendSuccess(res, {}, 'Already processed.');
 
-        if (row.provider === 'fivesim') await fivesim.cancel(row.smspool_order_id);
-        else await smspool.cancelOrder(row.smspool_order_id);
+        // RACE-SAFE claim: user-cancel labels it CANCELLED
+        const claimed = await claimCancellation(row.id, 'CANCELLED');
+        if (!claimed) return sendSuccess(res, {}, 'Already processed.');
 
-        await refundUser(profile.id, Number(row.charged_ngn), row.id);
-        await supabaseAdmin.from('sms_verifications')
-          .update({ status: 'CANCELLED', refunded: true, updated_at: new Date().toISOString() }).eq('id', row.id);
+        if (claimed.provider === 'fivesim') await fivesim.cancel(claimed.smspool_order_id);
+        else await smspool.cancelOrder(claimed.smspool_order_id);
 
+        await refundUser(claimed.user_id, Number(claimed.charged_ngn), claimed.id);
         return sendSuccess(res, {}, 'Cancelled and refunded.');
       }
 
