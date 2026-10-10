@@ -225,7 +225,16 @@ module.exports = async (req, res) => {
         }
 
         if (state === 'RECEIVED') {
-          const otp = smspool.extractOtp(smsText) || smsText.slice(0, 10);
+          // 5sim: smsText is already the clean activation code. SMSPool: raw SMS text → extract digits.
+          const otp = row.provider === 'fivesim'
+            ? String(smsText).trim().slice(0, 12)
+            : (smspool.extractOtp(smsText) || String(smsText).trim().slice(0, 10));
+
+          if (!otp) {
+            // Safety net: never verify with an empty code
+            return sendSuccess(res, { status: 'ACTIVE', otp: null, number: row.phone_number, service_name: row.service_name, country_name: row.country_name, provider: row.provider });
+          }
+
           await supabaseAdmin.from('sms_verifications')
             .update({ status: 'VERIFIED', otp, updated_at: new Date().toISOString() }).eq('id', row.id);
           await sendNotification(profile.id, 'SMS Verified!', `Your ${row.service_name} (${row.country_name || ''}) verification succeeded. Code: ${otp}`, 'GENERAL');
