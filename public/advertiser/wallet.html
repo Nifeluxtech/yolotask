@@ -3,11 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wallet - YOLOTASK Advertiser</title>
+  <title>Wallet - YOLOTASK</title>
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
-  <link rel="stylesheet" href="/css/admin.css" />
-  <script src="https://js.paystack.co/v1/inline.js"></script>
+  <style>
+    .balance-card { background: linear-gradient(135deg, var(--accent), #4338ca); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 18px; }
+    .hist-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .hist-row:last-child { border-bottom: none; }
+  </style>
 </head>
 <body>
   <header class="flex justify-between items-center" style="padding:15px 20px;">
@@ -15,18 +18,18 @@
     <div style="font-weight:700; font-size:15px;">Wallet</div>
   </header>
 
-  <main class="container" style="padding:22px 20px 120px; max-width:860px;">
-    <div style="background:linear-gradient(135deg, var(--accent), #4338ca); border-radius:var(--radius-lg); padding:26px; color:#fff; margin-bottom:18px;">
-      <div style="font-size:13px; opacity:.9;">Available Balance</div>
-      <div style="font-size:34px; font-weight:800; margin:4px 0;" id="availBalance">₦0.00</div>
-      <div style="font-size:13px; opacity:.9;">Locked in live campaigns: <strong id="lockBalance">₦0.00</strong></div>
+  <main class="container" style="padding:22px 18px 120px; max-width:760px;">
+    <div class="balance-card">
+      <div style="font-size:13px; opacity:.85;">Available Balance</div>
+      <div style="font-size:34px; font-weight:800; margin:4px 0;" id="availBal">₦0.00</div>
+      <div style="font-size:13px; opacity:.85;">Locked in live campaigns: <strong id="lockedBal">₦0.00</strong></div>
     </div>
 
     <div class="panel">
       <h3>Fund Your Wallet</h3>
       <label class="f-label">Amount (₦)</label>
-      <input type="number" id="topupAmount" class="f-input" min="100" placeholder="e.g. 10000" />
-      <button class="btn btn-primary w-full" id="topupBtn">Pay with Paystack</button>
+      <input type="number" id="amountInput" class="f-input" min="100" placeholder="e.g. 10000" />
+      <button class="btn btn-primary w-full" id="payBtn">Pay with Paystack</button>
     </div>
 
     <div class="panel">
@@ -35,84 +38,122 @@
     </div>
   </main>
 
+  <!-- Paystack Inline v2 (setupHandler). Page also supports v1 + redirect fallback. -->
+  <script src="https://js.paystack.co/v2/inline.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/ui.js"></script>
   <script>
-    // ⚠️ PASTE YOUR REAL PAYSTACK PUBLIC KEY HERE (pk_test_... or pk_live_...)
-    const PAYSTACK_PUBLIC_KEY = 'pk_live_566df2c0ef676e530a94e9f5a9aab0160941346e';
-
-    let me = null;
+    let publicKey = null;
+    let myEmail = '';
 
     (async () => {
-      me = await checkAuthAndRedirect('advertiser');
-      if (!me) return;
+      const profile = await checkAuthAndRedirect('advertiser');
+      if (!profile) return;
+      myEmail = profile.email || '';
 
       try {
-        const balRes = await apiClient.request('wallet.js', { action: 'get_balance' });
-        document.getElementById('availBalance').textContent = formatCurrency(balRes.data.wallet.available_balance);
-        document.getElementById('lockBalance').textContent = formatCurrency(balRes.data.wallet.locked_balance);
+        const k = await apiClient.request('payments.js', { action: 'get_public_key' });
+        publicKey = k.data.public_key || null;
+      } catch (e) { publicKey = null; }
 
-        const histRes = await apiClient.request('payments.js', { action: 'get_topups' });
-        const topups = histRes.data.topups || [];
-        const list = document.getElementById('topupList');
+      handleReturnReference();
+      load();
+    })();
 
-        if (topups.length === 0) {
-          list.innerHTML = '<div style="color:var(--text-secondary); font-size:13px;">No top-ups yet.</div>';
-        } else {
-          list.innerHTML = topups.map(t => `
-            <div class="row-item">
+    async function load() {
+      try {
+        const [balRes, topRes] = await Promise.all([
+          apiClient.request('wallet.js', { action: 'get_balance' }),
+          apiClient.request('payments.js', { action: 'get_topups' })
+        ]);
+
+        document.getElementById('availBal').textContent = formatCurrency(balRes.data.wallet.available_balance);
+        document.getElementById('lockedBal').textContent = formatCurrency(balRes.data.wallet.locked_balance);
+
+        const list = topRes.data.topups || [];
+        document.getElementById('topupList').innerHTML = list.length === 0
+          ? '<div style="color:var(--text-secondary); font-size:13px;">No top-ups yet.</div>'
+          : list.map(t => `
+            <div class="hist-row">
               <div>
-                <div style="font-weight:700;">${formatCurrency(t.amount)}</div>
-                <div class="row-sub">${formatDate(t.created_at)} • ${t.status}</div>
+                <div style="font-weight:800; font-size:16px;">${formatCurrency(t.amount)}</div>
+                <div style="font-size:12px; color:var(--text-secondary);">${formatDate(t.created_at)} • ${t.status}</div>
               </div>
-              <div style="display:flex; align-items:center; gap:8px;">
+              <div style="display:flex; gap:8px; align-items:center;">
                 <span class="badge ${t.status === 'SUCCESS' ? 'green' : t.status === 'PENDING' ? 'amber' : 'red'}">${t.status}</span>
-                <a href="/receipt.html?type=topup&id=${t.id}" class="btn btn-outline" style="padding:6px 12px; font-size:11px;">Receipt</a>
+                <a class="btn btn-outline" style="padding:6px 12px; font-size:11px;" href="/receipt.html?type=topup&id=${t.id}">Receipt</a>
               </div>
-            </div>
-          `).join('');
+            </div>`).join('');
+      } catch (err) {
+        document.getElementById('topupList').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    // If Paystack redirected back with ?trxref=..., verify it
+    function handleReturnReference() {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('trxref') || params.get('reference');
+      if (!ref) return;
+      history.replaceState(null, '', window.location.pathname);
+      verify(ref);
+    }
+
+    async function verify(reference) {
+      try {
+        const res = await apiClient.request('payments.js', { action: 'verify_topup', reference });
+        showToast(res.message || 'Top-up credited!', 'success');
+        load();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    document.getElementById('payBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('payBtn');
+      const amount = Number(document.getElementById('amountInput').value);
+      if (!amount || amount < 100) { showToast('Minimum top-up is ₦100.', 'error'); return; }
+      if (!publicKey) { showToast('Payment key not configured. Contact support.', 'error'); return; }
+
+      btn.disabled = true; btn.textContent = 'Starting checkout...';
+      try {
+        const init = await apiClient.request('payments.js', { action: 'initialize_topup', amount });
+        const reference = init.data.reference;
+
+        const afterSuccess = (ref) => { verify(ref || reference); };
+        const afterClose = () => { showToast('Checkout closed. If you paid, funds appear automatically.', 'warning'); load(); };
+
+        if (typeof PaystackPop !== 'undefined' && typeof PaystackPop.setupHandler === 'function') {
+          // ---- Paystack Inline v2 ----
+          PaystackPop.setupHandler({
+            reference,
+            publicKey,
+            email: myEmail,
+            amount: Math.round(amount * 100),
+            onSuccess: (txn) => afterSuccess(txn && txn.reference),
+            onCancel: afterClose,
+            onError: (e) => { showToast('Checkout error: ' + ((e && e.message) || 'unknown'), 'error'); load(); }
+          });
+          PaystackPop.openIframe();
+        } else if (typeof PaystackPop !== 'undefined' && typeof PaystackPop.setup === 'function') {
+          // ---- Paystack Inline v1 ----
+          const handler = PaystackPop.setup({
+            reference,
+            key: publicKey,
+            email: myEmail,
+            amount: Math.round(amount * 100),
+            callback: (resp) => afterSuccess(resp && resp.reference),
+            onClose: afterClose
+          });
+          handler.openIframe();
+        } else {
+          // ---- No inline lib: redirect to Paystack checkout page ----
+          window.location.href = init.data.authorization_url;
         }
       } catch (err) {
         showToast(err.message, 'error');
       }
-    })();
-
-    document.getElementById('topupBtn').addEventListener('click', async () => {
-      const amount = Number(document.getElementById('topupAmount').value);
-      if (!amount || amount < 100) { showToast('Minimum top-up is ₦100.', 'error'); return; }
-
-      const btn = document.getElementById('topupBtn');
-      btn.disabled = true; btn.textContent = 'Initializing...';
-
-      try {
-        const res = await apiClient.request('payments.js', { action: 'initialize_topup', amount });
-
-        const handler = PaystackPop.setupHandler({
-          key: PAYSTACK_PUBLIC_KEY,
-          reference: res.data.reference,
-          email: me.email,
-          amount: amount * 100,
-          onClose: () => {
-            btn.disabled = false; btn.textContent = 'Pay with Paystack';
-            showToast('Payment window closed.', 'warning');
-          },
-          callback: async (response) => {
-            try {
-              await apiClient.request('payments.js', { action: 'verify_topup', reference: response.reference });
-              showToast('Wallet funded successfully!', 'success');
-              setTimeout(() => window.location.reload(), 1200);
-            } catch (err) {
-              showToast(err.message, 'error');
-              btn.disabled = false; btn.textContent = 'Pay with Paystack';
-            }
-          }
-        });
-        handler.openIframe();
-      } catch (err) {
-        showToast(err.message, 'error');
-        btn.disabled = false; btn.textContent = 'Pay with Paystack';
-      }
+      btn.disabled = false; btn.textContent = 'Pay with Paystack';
     });
   </script>
 </body>
