@@ -5,7 +5,6 @@ const { supabaseAdmin } = require('../lib/supabase');
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
-// ---------- Legacy-name resolver ----------
 function resolveAction(raw) {
   const a = String(raw || '').toLowerCase();
   const exact = {
@@ -24,12 +23,10 @@ function resolveAction(raw) {
     'get_history': 'get_topups', 'topup_history': 'get_topups', 'payment_history': 'get_topups', 'history': 'get_topups'
   };
   if (exact[a]) return exact[a];
-
   if (/(initialize|initiate|create|start|init)/.test(a) && /(pay|topup|top_up|deposit|fund)/.test(a)) return 'initialize_topup';
   if (/(verify|confirm|validate|check)/.test(a) && /(pay|topup|top_up|deposit|ref)/.test(a)) return 'verify_topup';
   if (/(history|list|all)/.test(a) && /(topup|top_up|deposit|payment)/.test(a)) return 'get_topups';
   if (/history/.test(a) && !/(withdraw|submission|notification)/.test(a)) return 'get_topups';
-
   return raw;
 }
 
@@ -40,10 +37,6 @@ async function paystackVerify(reference) {
   return await resp.json();
 }
 
-/**
- * RACE-SAFE CREDIT: atomically claims the PENDING→SUCCESS flip.
- * Only the request that wins the claim touches wallets/ledger.
- */
 async function creditTopup(tx, paystackData) {
   const { data: claimed } = await supabaseAdmin.from('payment_transactions')
     .update({ status: 'SUCCESS' })
@@ -51,11 +44,9 @@ async function creditTopup(tx, paystackData) {
     .eq('status', 'PENDING')
     .select();
 
-  if (!claimed || claimed.length === 0) {
-    return { already: true, amount: Number(tx.amount) };
-  }
+  if (!claimed || claimed.length === 0) return { already: true, amount: Number(tx.amount) };
 
-  const naira = Number(paystackData.amount) / 100; // kobo → naira
+  const naira = Number(paystackData.amount) / 100;
 
   const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', tx.user_id).single();
   if (wallet) {
@@ -80,12 +71,16 @@ module.exports = async (req, res) => {
     const action = resolveAction(req.body.action);
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
+    // Public key is safe to expose (it's public by design) — no auth needed
+    if (action === 'get_public_key') {
+      return sendSuccess(res, { public_key: process.env.PAYSTACK_PUBLIC_KEY || null });
+    }
+
     const auth = await getAuthenticatedUser(req);
     const profile = auth.profile;
     const userEmail = auth.user?.email || '';
 
     switch (action) {
-      // ---------- INITIALIZE ----------
       case 'initialize_topup': {
         requireRole(profile, ['earner', 'advertiser']);
         if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing in Vercel env.', statusCode: 500 };
@@ -102,7 +97,7 @@ module.exports = async (req, res) => {
           headers: { Authorization: `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: userEmail,
-            amount: Math.round(amount * 100), // naira → kobo
+            amount: Math.round(amount * 100),
             reference,
             callback_url: `${process.env.APP_URL || ''}/${rolePath}/wallet.html`
           })
@@ -127,7 +122,6 @@ module.exports = async (req, res) => {
         }, 'Payment initialized.');
       }
 
-      // ---------- VERIFY ----------
       case 'verify_topup': {
         requireRole(profile, ['earner', 'advertiser', 'admin']);
         const { reference } = req.body;
@@ -153,7 +147,6 @@ module.exports = async (req, res) => {
         return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', 'Payment was not completed.', 400);
       }
 
-      // ---------- HISTORY (+ auto-rescue of paid-but-unverified topups) ----------
       case 'get_topups': {
         requireRole(profile, ['earner', 'advertiser']);
 
@@ -163,7 +156,6 @@ module.exports = async (req, res) => {
 
         const topups = data || [];
 
-        // Rescue: verify PENDING rows older than 2 minutes (max 5 per call)
         if (PAYSTACK_SECRET) {
           const stale = topups.filter(t =>
             t.status === 'PENDING' &&
