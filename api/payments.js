@@ -1,5 +1,3 @@
-// /api/payments.js — alias endpoint so any page calling payments.js hits the wallet engine
-module.exports = require('./wallet');
 const axios = require('axios');
 const crypto = require('crypto');
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
@@ -62,4 +60,6 @@ module.exports = async (req, res) => {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
     return sendError(res, 'INTERNAL_ERROR', 'Payment failed.');
   }
+  // /api/payments.js — alias endpoint so any page calling payments.js hits the wallet engine
+module.exports = require('./wallet');
 };
