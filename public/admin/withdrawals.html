@@ -13,6 +13,8 @@
     <aside class="admin-sidebar">
       <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/sms.html">📱 SMS Control</a>
+      <a href="/admin/catalog.html">🧩 Catalog</a>
       <a href="/admin/leaders.html">🏆 Leader Console</a>
       <a href="/admin/campaigns.html">📝 Campaigns</a>
       <a href="/admin/escalated.html">⚠️ Escalated</a>
@@ -28,6 +30,9 @@
         <div class="page-title">Withdrawals</div>
         <span class="badge cyan" id="countBadge">0</span>
       </header>
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
+        Send the transfer from your bank/Paystack first, then mark it paid here. Full account details are shown for processing.
+      </p>
 
       <div id="list"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
     </main>
@@ -57,19 +62,22 @@
 
         box.innerHTML = wds.map(w => `
           <div class="panel" id="wd-${w.id}">
-            <div class="row-item" style="border:none; padding:0;">
-              <div>
+            <div class="row-item" style="border:none; padding:0 0 10px;">
+              <div style="flex:1; min-width:0;">
                 <div style="font-weight:700; font-size:15px;">${escapeHtml(w.profiles?.full_name || 'Unknown')} — ${formatCurrency(w.amount)}</div>
-                <div class="row-sub">${escapeHtml(w.bank_name)} • ****${escapeHtml(String(w.account_number).slice(-4))} • ${escapeHtml(w.account_name)} • ${formatDate(w.created_at)}</div>
+                <div class="row-sub">${escapeHtml(w.bank_name)} • ${escapeHtml(w.account_name)} • ${formatDate(w.created_at)}</div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
+                  <code style="background:var(--bg-primary); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:14px; letter-spacing:1px; color:var(--text-primary);">${escapeHtml(String(w.account_number))}</code>
+                  <button class="btn btn-outline" style="padding:5px 10px; font-size:11px;" onclick="copyAcct('${escapeHtml(String(w.account_number))}')">Copy</button>
+                </div>
               </div>
-              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                <span class="badge ${w.status === 'PENDING' ? 'amber' : w.status === 'COMPLETED' ? 'green' : 'red'}">${w.status}</span>
-                ${w.status === 'PENDING' ? `
-                  <button class="btn btn-danger" style="padding:7px 12px; font-size:11px;" onclick="proc('${w.id}','REJECTED')">Reject</button>
-                  <button class="btn btn-success" style="padding:7px 12px; font-size:11px;" onclick="proc('${w.id}','COMPLETED')">Mark Paid</button>
-                ` : ''}
-              </div>
+              <span class="badge ${w.status === 'PENDING' ? 'amber' : w.status === 'COMPLETED' ? 'green' : 'red'}">${w.status}</span>
             </div>
+            ${w.status === 'PENDING' ? `
+              <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
+                <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="proc('${w.id}','REJECTED',this)">Reject & Refund</button>
+                <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="proc('${w.id}','COMPLETED',this)">Mark Paid</button>
+              </div>` : ''}
           </div>
         `).join('');
       } catch (err) {
@@ -77,13 +85,27 @@
       }
     }
 
-    window.proc = async function (withdrawalId, action) {
-      if (!confirm(action === 'COMPLETED' ? 'Confirm you have sent this payment via your bank/Paystack transfer.' : 'Reject and return funds to user wallet?')) return;
+    window.copyAcct = function (num) {
+      navigator.clipboard?.writeText(num)
+        .then(() => showToast('Account number copied.', 'success'))
+        .catch(() => showToast(num, 'warning'));
+    };
+
+    window.proc = async function (withdrawalId, wdAction, btn) {
+      const label = wdAction === 'COMPLETED' ? 'Mark as PAID? Only do this after sending the real transfer.' : 'Reject and return funds to the user wallet?';
+      if (!confirm(label)) return;
+
+      const old = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Processing...';
       try {
-        await apiClient.request('admin.js', { action: 'process_withdrawal', withdrawalId, action });
-        showToast('Withdrawal updated.', 'success');
-        load();
-      } catch (err) { showToast(err.message, 'error'); }
+        // FIXED: decision sent as wdAction (no more duplicate `action` key)
+        const res = await apiClient.request('admin.js', { action: 'process_withdrawal', withdrawalId, wdAction });
+        showToast(res.message || 'Withdrawal updated.', 'success');
+        setTimeout(() => load(), 600);
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false; btn.textContent = old;
+      }
     };
   </script>
 </body>
