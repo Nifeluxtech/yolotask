@@ -1,9 +1,45 @@
-// /api/wallet.js — wallet, check-in, payouts, receipts + PAYSTACK TOP-UPS (restored)
+// /api/wallet.js — wallet engine with legacy-action resolver
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
+
+// Maps every known/legacy action name to a canonical handler
+function resolveAction(raw) {
+  const a = String(raw || '').toLowerCase();
+  const exact = {
+    // history
+    'get_topups': 'get_topups', 'get_topup_history': 'get_topups', 'get_payment_history': 'get_topups',
+    'get_topup_transactions': 'get_topups', 'get_payments': 'get_topups', 'get_deposits': 'get_topups',
+    'get_deposit_history': 'get_topups', 'get_payment_list': 'get_topups', 'get_topup_list': 'get_topups',
+    'get_history': 'get_topups', 'topup_history': 'get_topups', 'payment_history': 'get_topups',
+    // initialize
+    'initialize_topup': 'initialize_topup', 'initialize_payment': 'initialize_topup', 'initiate_payment': 'initialize_topup',
+    'initiate_topup': 'initialize_topup', 'create_payment': 'initialize_topup', 'create_topup': 'initialize_topup',
+    'start_payment': 'initialize_topup', 'paystack_initialize': 'initialize_topup', 'init_payment': 'initialize_topup',
+    'initialize': 'initialize_topup', 'initiate': 'initialize_topup',
+    // verify
+    'verify_topup': 'verify_topup', 'verify_payment': 'verify_topup', 'confirm_payment': 'verify_topup',
+    'confirm_topup': 'verify_topup', 'validate_payment': 'verify_topup', 'paystack_verify': 'verify_topup',
+    'check_payment': 'verify_topup', 'verify': 'verify_topup', 'confirm': 'verify_topup',
+    // balance
+    'get_balance': 'get_balance', 'get_wallet': 'get_balance', 'get_wallet_balance': 'get_balance',
+    'balance': 'get_balance', 'wallet_balance': 'get_balance',
+    // ledger
+    'get_transactions': 'get_transactions', 'get_ledger': 'get_transactions',
+    'get_wallet_transactions': 'get_transactions', 'get_statement': 'get_transactions'
+  };
+  if (exact[a]) return exact[a];
+
+  // Fuzzy fallbacks for anything still unknown
+  if (/(initialize|initiate|create|start|init)/.test(a) && /(pay|topup|top_up|deposit|fund)/.test(a)) return 'initialize_topup';
+  if (/(verify|confirm|validate|check)/.test(a) && /(pay|topup|top_up|deposit|ref)/.test(a)) return 'verify_topup';
+  if (/(history|list|all)/.test(a) && /(topup|top_up|deposit|payment)/.test(a)) return 'get_topups';
+  if (/history/.test(a) && !/(withdraw|submission|notification)/.test(a)) return 'get_topups';
+
+  return raw;
+}
 
 async function paystackGet(path) {
   const resp = await fetch(`https://api.paystack.co${path}`, {
@@ -24,7 +60,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
 
   try {
-    const { action } = req.body;
+    const action = resolveAction(req.body.action);
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
     const auth = await getAuthenticatedUser(req);
@@ -48,11 +84,8 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { transactions: data || [] });
       }
 
-      // ---------- PAYSTACK TOP-UPS (all alias names the UI may use) ----------
-      case 'initialize_topup':
-      case 'initialize_payment':
-      case 'create_topup':
-      case 'initiate_topup': {
+      // ---------- PAYSTACK TOP-UPS ----------
+      case 'initialize_topup': {
         requireRole(profile, ['earner', 'advertiser']);
         if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing in Vercel env.', statusCode: 500 };
 
@@ -68,7 +101,7 @@ module.exports = async (req, res) => {
           headers: { Authorization: `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: userEmail,
-            amount: Math.round(amount * 100), // kobo
+            amount: Math.round(amount * 100),
             reference,
             callback_url: `${process.env.APP_URL || ''}/${rolePath}/wallet.html`
           })
@@ -92,9 +125,7 @@ module.exports = async (req, res) => {
         }, 'Payment initialized.');
       }
 
-      case 'verify_topup':
-      case 'verify_payment':
-      case 'confirm_topup': {
+      case 'verify_topup': {
         requireRole(profile, ['earner', 'advertiser', 'admin']);
         const { reference } = req.body;
         if (!reference) return sendError(res, 'VALIDATION_ERROR', 'Reference required.', 400);
@@ -132,10 +163,7 @@ module.exports = async (req, res) => {
         return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', 'Payment was not completed.', 400);
       }
 
-      case 'get_topups':
-      case 'get_topup_history':
-      case 'get_payment_history':
-      case 'get_topup_transactions': {
+      case 'get_topups': {
         requireRole(profile, ['earner', 'advertiser']);
         const { data, error } = await supabaseAdmin.from('payment_transactions').select('*')
           .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(30);
@@ -147,26 +175,19 @@ module.exports = async (req, res) => {
       case 'get_checkin_status': {
         requireRole(profile, ['earner']);
         const { data } = await supabaseAdmin.from('wallet_ledger')
-          .select('created_at')
-          .eq('user_id', profile.id)
-          .eq('transaction_type', 'DAILY_CHECKIN')
-          .order('created_at', { ascending: false })
-          .limit(1);
-
+          .select('created_at').eq('user_id', profile.id).eq('transaction_type', 'DAILY_CHECKIN')
+          .order('created_at', { ascending: false }).limit(1);
         const last = data && data[0] ? data[0].created_at : null;
         const todayUtc = new Date().toISOString().slice(0, 10);
         const checked = !!last && last.slice(0, 10) === todayUtc;
         const reward = await getSettingNumber('daily_checkin_reward', 10);
-
         return sendSuccess(res, { checked_in_today: checked, reward });
       }
 
       case 'daily_checkin': {
         requireRole(profile, ['earner']);
         const { data, error } = await supabaseAdmin.rpc('perform_daily_checkin', { p_user_id: profile.id });
-        if (error) {
-          throw { code: 'CHECKIN_FAILED', message: error.message || 'Already checked in today.', statusCode: 400 };
-        }
+        if (error) throw { code: 'CHECKIN_FAILED', message: error.message || 'Already checked in today.', statusCode: 400 };
         return sendSuccess(res, { reward: data }, `Check-in successful! +₦${Number(data).toLocaleString()} added to your wallet.`);
       }
 
@@ -342,8 +363,11 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { withdrawal }, 'Withdrawal requested. Processing within 24 hours.');
       }
 
-      default:
+      default: {
+        // Loud logging so Vercel logs reveal the exact unknown action next time
+        console.error('WALLET UNKNOWN ACTION:', JSON.stringify(req.body));
         return sendError(res, 'INVALID_ACTION', 'Unknown action.', 400);
+      }
     }
   } catch (err) {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
