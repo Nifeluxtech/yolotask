@@ -1,3 +1,5 @@
+// /api/payments.js — alias endpoint so any page calling payments.js hits the wallet engine
+module.exports = require('./wallet');
 const axios = require('axios');
 const crypto = require('crypto');
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
