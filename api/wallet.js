@@ -1,4 +1,4 @@
-// /api/wallet.js
+// /api/wallet.js — wallet, check-in, payouts, receipts + PAYSTACK TOP-UPS (restored)
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
@@ -27,7 +27,9 @@ module.exports = async (req, res) => {
     const { action } = req.body;
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
-    const { profile } = await getAuthenticatedUser(req);
+    const auth = await getAuthenticatedUser(req);
+    const profile = auth.profile;
+    const userEmail = auth.user?.email || '';
 
     switch (action) {
       case 'get_balance': {
@@ -44,6 +46,101 @@ module.exports = async (req, res) => {
           .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(50);
         if (error) throw error;
         return sendSuccess(res, { transactions: data || [] });
+      }
+
+      // ---------- PAYSTACK TOP-UPS (all alias names the UI may use) ----------
+      case 'initialize_topup':
+      case 'initialize_payment':
+      case 'create_topup':
+      case 'initiate_topup': {
+        requireRole(profile, ['earner', 'advertiser']);
+        if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing in Vercel env.', statusCode: 500 };
+
+        const amount = Number(req.body.amount);
+        if (!amount || amount < 100) return sendError(res, 'VALIDATION_ERROR', 'Minimum top-up is ₦100.', 400);
+        if (amount > 10000000) return sendError(res, 'VALIDATION_ERROR', 'Amount too large.', 400);
+
+        const reference = 'TOP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+        const rolePath = profile.role === 'advertiser' ? 'advertiser' : 'earner';
+
+        const resp = await fetch('https://api.paystack.co/transaction/initialize', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: userEmail,
+            amount: Math.round(amount * 100), // kobo
+            reference,
+            callback_url: `${process.env.APP_URL || ''}/${rolePath}/wallet.html`
+          })
+        });
+        const result = await resp.json();
+        if (!result.status || !result.data) {
+          throw { code: 'PAYSTACK_INIT_FAILED', message: result.message || 'Could not start payment.', statusCode: 502 };
+        }
+
+        await supabaseAdmin.from('payment_transactions').insert({
+          user_id: profile.id,
+          paystack_reference: reference,
+          amount,
+          status: 'PENDING'
+        });
+
+        return sendSuccess(res, {
+          reference,
+          authorization_url: result.data.authorization_url,
+          access_code: result.data.access_code
+        }, 'Payment initialized.');
+      }
+
+      case 'verify_topup':
+      case 'verify_payment':
+      case 'confirm_topup': {
+        requireRole(profile, ['earner', 'advertiser', 'admin']);
+        const { reference } = req.body;
+        if (!reference) return sendError(res, 'VALIDATION_ERROR', 'Reference required.', 400);
+        if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing.', statusCode: 500 };
+
+        const result = await paystackGet(`/transaction/verify/${encodeURIComponent(reference)}`);
+        const { data: tx } = await supabaseAdmin.from('payment_transactions').select('*')
+          .eq('paystack_reference', reference).maybeSingle();
+        if (!tx) return sendError(res, 'NOT_FOUND', 'Top-up record not found.', 404);
+        if (tx.user_id !== profile.id && profile.role !== 'admin') return sendError(res, 'FORBIDDEN', 'Not your transaction.', 403);
+
+        if (tx.status === 'SUCCESS') {
+          return sendSuccess(res, { already: true, amount: Number(tx.amount) }, 'Already credited.');
+        }
+
+        if (result.status && result.data && result.data.status === 'success') {
+          const naira = Number(result.data.amount) / 100;
+
+          const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', tx.user_id).single();
+          if (wallet) {
+            await supabaseAdmin.from('wallets')
+              .update({ available_balance: Number(wallet.available_balance) + naira, updated_at: new Date().toISOString() })
+              .eq('user_id', tx.user_id);
+          }
+          await supabaseAdmin.from('wallet_ledger').insert({
+            user_id: tx.user_id, transaction_type: 'TOPUP', amount: naira,
+            direction: 'CREDIT', status: 'COMPLETED', reference: 'TOPUP-' + reference
+          });
+          await supabaseAdmin.from('payment_transactions').update({ status: 'SUCCESS' }).eq('id', tx.id);
+
+          return sendSuccess(res, { amount: naira }, `₦${naira.toLocaleString()} added to your wallet!`);
+        }
+
+        await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED' }).eq('id', tx.id);
+        return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', 'Payment was not completed.', 400);
+      }
+
+      case 'get_topups':
+      case 'get_topup_history':
+      case 'get_payment_history':
+      case 'get_topup_transactions': {
+        requireRole(profile, ['earner', 'advertiser']);
+        const { data, error } = await supabaseAdmin.from('payment_transactions').select('*')
+          .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(30);
+        if (error) throw error;
+        return sendSuccess(res, { topups: data || [] });
       }
 
       // ---------- DAILY CHECK-IN ----------
