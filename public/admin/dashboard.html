@@ -13,6 +13,7 @@
     <aside class="admin-sidebar">
       <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
       <a href="/admin/dashboard.html" class="active">📊 Dashboard</a>
+      <a href="/admin/gateway.html">🔀 Gateways</a>
       <a href="/admin/sms.html">📱 SMS Control</a>
       <a href="/admin/catalog.html">🧩 Catalog</a>
       <a href="/admin/leaders.html">🏆 Leader Console</a>
@@ -38,16 +39,44 @@
         <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
       </div>
 
+      <!-- GATEWAY QUICK CONTROL -->
+      <div class="panel" id="gatewayPanel">
+        <div class="flex justify-between items-center" style="margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+          <h3 style="margin:0;">🔀 Payment Gateways</h3>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="badge cyan" id="vqBalBadge">VQPay: …</span>
+            <a href="/admin/gateway.html" class="btn btn-outline" style="padding:6px 12px; font-size:11px;">Full Settings →</a>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px;">
+          <div>
+            <label class="f-label">Deposits / Top-ups</label>
+            <select id="gwDeposit" class="f-input" style="margin:0;">
+              <option value="paystack">Paystack (card checkout)</option>
+              <option value="vqpay">VQPay (redirect cashier)</option>
+            </select>
+          </div>
+          <div>
+            <label class="f-label">Withdrawals / Payouts</label>
+            <select id="gwPayout" class="f-input" style="margin:0;">
+              <option value="manual">Manual (admin transfers)</option>
+              <option value="vqpay">VQPay (auto bank payout)</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size:11px; color:var(--text-muted); margin-top:10px;">Changes apply instantly to all users. VQPay deposits need the Nigeria method ID configured in Full Settings.</p>
+      </div>
+
       <div class="panel">
         <h3>Quick Actions</h3>
         <div class="quick-grid">
-          <a href="/admin/sms.html" class="quick-card"><div class="qc-icon">📱</div><div class="qc-title">SMS Management</div><div style="font-size:11px; color:var(--text-secondary);">Services, rates & audit</div></a>
+          <a href="/admin/gateway.html" class="quick-card"><div class="qc-icon">🔀</div><div class="qc-title">Gateways</div><div style="font-size:11px; color:var(--text-secondary);">VQPay config & bank map</div></a>
+          <a href="/admin/sms.html" class="quick-card"><div class="qc-icon">📱</div><div class="qc-title">SMS Management</div><div style="font-size:11px; color:var(--text-secondary);">Providers, rates & audit</div></a>
           <a href="/admin/catalog.html" class="quick-card"><div class="qc-icon">🧩</div><div class="qc-title">Catalog Manager</div><div style="font-size:11px; color:var(--text-secondary);">Platforms & task types</div></a>
           <a href="/admin/campaigns.html" class="quick-card"><div class="qc-icon">📝</div><div class="qc-title">Review Campaigns</div></a>
           <a href="/admin/escalated.html" class="quick-card"><div class="qc-icon">⚠️</div><div class="qc-title">Escalated Tasks</div></a>
           <a href="/admin/withdrawals.html" class="quick-card"><div class="qc-icon">💸</div><div class="qc-title">Process Payouts</div></a>
           <a href="/admin/leaders.html" class="quick-card"><div class="qc-icon">🏆</div><div class="qc-title">Reward Leaders</div></a>
-          <a href="/admin/users.html" class="quick-card"><div class="qc-icon">👥</div><div class="qc-title">Manage Users</div></a>
           <a href="/admin/announcements.html" class="quick-card"><div class="qc-icon">📢</div><div class="qc-title">Broadcast</div></a>
         </div>
       </div>
@@ -64,16 +93,13 @@
             </label>
           </div>
         </div>
-
         <div class="stat-grid" id="smsStats">
           <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
           <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
           <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
           <div class="stat-card"><div class="skeleton skeleton-text"></div></div>
         </div>
-
         <div id="smsRecent" style="margin-bottom:12px;"></div>
-
         <a href="/admin/sms.html" class="btn btn-outline" style="padding:9px 18px; font-size:13px;">Open Full SMS Control →</a>
       </div>
     </main>
@@ -88,7 +114,6 @@
       if (!profile) return;
       document.getElementById('adminName').textContent = profile.full_name;
 
-      // Silent storage hygiene
       apiClient.request('admin.js', { action: 'purge_decided_proofs' }).catch(() => {});
 
       try {
@@ -104,9 +129,56 @@
         document.getElementById('statsGrid').innerHTML = `<div class="panel" style="color:var(--error); grid-column:1/-1;">${escapeHtml(err.message)}</div>`;
       }
 
+      loadGateway();
       loadSmsSection();
     })();
 
+    // ---------- GATEWAY QUICK CONTROL ----------
+    async function loadGateway() {
+      const dep = document.getElementById('gwDeposit');
+      const pay = document.getElementById('gwPayout');
+      const bal = document.getElementById('vqBalBadge');
+      try {
+        const r = await apiClient.request('vqpay.js', { action: 'get_gateway_settings' });
+        dep.value = r.data.settings.deposit_gateway || 'paystack';
+        pay.value = r.data.settings.payout_gateway || 'manual';
+      } catch (err) {
+        dep.disabled = true; pay.disabled = true;
+      }
+      try {
+        const b = await apiClient.request('vqpay.js', { action: 'payout_balance' });
+        bal.textContent = 'VQPay: $' + Number(b.data.available).toFixed(2);
+        bal.className = 'badge ' + (Number(b.data.available) > 0 ? 'green' : 'red');
+      } catch (e) {
+        bal.textContent = 'VQPay: ERR';
+        bal.className = 'badge red';
+      }
+    }
+
+    async function switchGateway(key, value, el) {
+      const prev = el.dataset.prev || el.value;
+      el.disabled = true;
+      try {
+        await apiClient.request('vqpay.js', { action: 'update_gateway_settings', settings: { [key]: value } });
+        showToast(`${key === 'deposit_gateway' ? 'Deposits' : 'Payouts'} now via ${value.toUpperCase()}.`, 'success');
+        el.dataset.prev = value;
+      } catch (err) {
+        showToast(err.message, 'error');
+        el.value = prev;
+      }
+      el.disabled = false;
+    }
+
+    document.getElementById('gwDeposit').addEventListener('change', (e) => {
+      if (!confirm(`Route ALL new deposits through ${e.target.value.toUpperCase()}?`)) { loadGateway(); return; }
+      switchGateway('deposit_gateway', e.target.value, e.target);
+    });
+    document.getElementById('gwPayout').addEventListener('change', (e) => {
+      if (!confirm(`Route payouts through ${e.target.value === 'vqpay' ? 'VQPay auto-payout' : 'MANUAL admin transfers'}?`)) { loadGateway(); return; }
+      switchGateway('payout_gateway', e.target.value, e.target);
+    });
+
+    // ---------- SMS SECTION ----------
     async function loadSmsSection() {
       const badge = document.getElementById('smsStateBadge');
       const toggle = document.getElementById('smsQuickToggle');
@@ -120,16 +192,15 @@
         if (statsRes.status !== 'fulfilled') throw statsRes.reason || new Error('stats failed');
         const st = statsRes.value.data;
 
-        badge.textContent = st.enabled ? `LIVE • ${st.services_active} services` : 'DISABLED';
+        badge.textContent = st.enabled ? 'LIVE' : 'DISABLED';
         badge.className = 'badge ' + (st.enabled ? 'green' : 'gray');
         toggle.checked = !!st.enabled;
 
-        const balance = balRes.status === 'fulfilled'
-          ? '$' + Number(balRes.value.data.balance_usd).toFixed(2)
-          : '—';
+        const sp = balRes.status === 'fulfilled' ? '$' + Number(balRes.value.data.smspool_usd ?? 0).toFixed(2) : '—';
+        const fs = balRes.status === 'fulfilled' ? '$' + Number(balRes.value.data.fivesim_usd ?? 0).toFixed(2) : '—';
 
         document.getElementById('smsStats').innerHTML = `
-          <div class="stat-card"><div class="stat-lbl">SMSPool Balance</div><div class="stat-val ${balance === '—' ? 'danger' : 'good'}" style="font-size:22px;">${balance}</div></div>
+          <div class="stat-card"><div class="stat-lbl">Provider Balances</div><div class="stat-val" style="font-size:16px;">SP ${sp} • 5S ${fs}</div></div>
           <div class="stat-card"><div class="stat-lbl">Verifications</div><div class="stat-val">${st.verified}/${st.total}</div><div class="stat-lbl">verified / total</div></div>
           <div class="stat-card"><div class="stat-lbl">Success Rate</div><div class="stat-val ${st.success_rate >= 70 ? 'good' : 'warn'}">${st.success_rate}%</div></div>
           <div class="stat-card"><div class="stat-lbl">SMS Revenue</div><div class="stat-val good" style="font-size:21px;">${formatCurrency(st.revenue_ngn)}</div></div>
@@ -147,12 +218,8 @@
               <span class="badge ${r.status === 'VERIFIED' ? 'green' : r.status === 'ACTIVE' ? 'amber' : 'red'}">${r.status}</span>
             </div>`).join('');
       } catch (err) {
-        const msg = (err && err.code === 'SMS_NOT_CONFIGURED')
-          ? 'SMS not configured: add SMSPOOL_API_KEY to Vercel environment variables.'
-          : (err && err.message) || 'Could not load SMS stats.';
-        document.getElementById('smsStats').innerHTML = `<div class="stat-card" style="grid-column:1/-1; color:var(--warning); font-size:13px;">⚠️ ${escapeHtml(msg)}</div>`;
-        document.getElementById('smsRecent').innerHTML = '';
-        badge.textContent = 'NOT CONFIGURED';
+        document.getElementById('smsStats').innerHTML = `<div class="stat-card" style="grid-column:1/-1; color:var(--warning); font-size:13px;">⚠️ SMS stats unavailable.</div>`;
+        badge.textContent = 'N/A';
         badge.className = 'badge red';
       }
     }
