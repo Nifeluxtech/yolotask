@@ -1,8 +1,8 @@
-// /api/payments.js — dual-gateway deposit engine (Paystack inline + VQPay redirect)
+// /api/payments.js — Dual-gateway deposit engine (Paystack inline + MGM Pay redirect)
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
-const vqpay = require('../lib/vqpay');
+const mgmpay = require('../lib/mgmpay');
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -11,29 +11,38 @@ function resolveAction(raw) {
   const exact = {
     'initialize_topup': 'initialize_topup', 'initialize_payment': 'initialize_topup', 'initiate_payment': 'initialize_topup',
     'initiate_topup': 'initialize_topup', 'create_payment': 'initialize_topup', 'create_topup': 'initialize_topup',
-    'start_payment': 'initialize_topup', 'paystack_initialize': 'initialize_topup', 'initialize': 'initialize_topup', 'pay': 'initialize_topup',
+    'start_payment': 'initialize_topup', 'paystack_initialize': 'initialize_topup', 'mgmpay_initialize': 'initialize_topup',
+    'initialize': 'initialize_topup', 'initiate': 'initialize_topup', 'pay': 'initialize_topup',
+
     'verify_topup': 'verify_topup', 'verify_payment': 'verify_topup', 'confirm_payment': 'verify_topup',
-    'confirm_topup': 'verify_topup', 'validate_payment': 'verify_topup', 'paystack_verify': 'verify_topup', 'verify': 'verify_topup',
+    'confirm_topup': 'verify_topup', 'validate_payment': 'verify_topup', 'paystack_verify': 'verify_topup',
+    'mgmpay_verify': 'verify_topup', 'check_payment': 'verify_topup', 'verify': 'verify_topup', 'confirm': 'verify_topup',
+
     'get_topups': 'get_topups', 'get_topup_history': 'get_topups', 'get_payment_history': 'get_topups',
-    'get_payments': 'get_topups', 'get_deposits': 'get_topups', 'get_history': 'get_topups', 'history': 'get_topups'
+    'get_topup_transactions': 'get_topups', 'get_payments': 'get_topups', 'get_deposits': 'get_topups',
+    'get_deposit_history': 'get_topups', 'get_payment_list': 'get_topups', 'get_topup_list': 'get_topups',
+    'get_history': 'get_topups', 'topup_history': 'get_topups', 'payment_history': 'get_topups', 'history': 'get_topups'
   };
   if (exact[a]) return exact[a];
-  if (/(initialize|initiate|create|start)/.test(a) && /(pay|topup|deposit|fund)/.test(a)) return 'initialize_topup';
-  if (/(verify|confirm|validate|check)/.test(a) && /(pay|topup|deposit|ref)/.test(a)) return 'verify_topup';
-  if (/(history|list|all)/.test(a) && /(topup|deposit|payment)/.test(a)) return 'get_topups';
+
+  if (/(initialize|initiate|create|start|init)/.test(a) && /(pay|topup|top_up|deposit|fund)/.test(a)) return 'initialize_topup';
+  if (/(verify|confirm|validate|check)/.test(a) && /(pay|topup|top_up|deposit|ref)/.test(a)) return 'verify_topup';
+  if (/(history|list|all)/.test(a) && /(topup|top_up|deposit|payment)/.test(a)) return 'get_topups';
+  if (/history/.test(a) && !/(withdraw|submission|notification)/.test(a)) return 'get_topups';
+
   return raw;
 }
 
 async function gatewaySettings() {
   const { data } = await supabaseAdmin.from('platform_settings').select('key, value')
-    .in('key', ['deposit_gateway', 'vqpay_country', 'vqpay_deposit_method', 'vqpay_deposit_flow']);
+    .in('key', ['deposit_gateway', 'mgmpay_country', 'mgmpay_deposit_method', 'mgmpay_deposit_flow']);
   const map = {};
   (data || []).forEach(r => { map[r.key] = r.value; });
   return {
     deposit_gateway: map.deposit_gateway || 'paystack',
-    country: map.vqpay_country || 'NG',
-    method: map.vqpay_deposit_method || '',
-    flow: map.vqpay_deposit_flow || 'REDIRECT'
+    country: map.mgmpay_country || 'NG',
+    method: map.mgmpay_deposit_method || 'BANK_CARD',
+    flow: map.mgmpay_deposit_flow || 'REDIRECT'
   };
 }
 
@@ -44,11 +53,15 @@ async function paystackVerify(reference) {
   return await resp.json();
 }
 
-async function creditTopup(tx, naira, vqPaymentId) {
+/** RACE-SAFE CREDIT: atomic PENDING→SUCCESS claim; only winner touches wallets/ledger. */
+async function creditTopup(tx, naira, externalId, gatewayName) {
   const patch = { status: 'SUCCESS' };
-  if (vqPaymentId) patch.vqpay_payment_id = vqPaymentId;
+  if (externalId) patch.vqpay_payment_id = externalId; // reuse column for MGM payment_id
+  if (gatewayName) patch.gateway = gatewayName;
+
   const { data: claimed } = await supabaseAdmin.from('payment_transactions')
     .update(patch).eq('id', tx.id).eq('status', 'PENDING').select();
+
   if (!claimed || claimed.length === 0) return { already: true, amount: Number(tx.amount) };
 
   const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', tx.user_id).single();
@@ -57,10 +70,12 @@ async function creditTopup(tx, naira, vqPaymentId) {
       .update({ available_balance: Number(wallet.available_balance) + naira, updated_at: new Date().toISOString() })
       .eq('user_id', tx.user_id);
   }
+
   await supabaseAdmin.from('wallet_ledger').insert({
     user_id: tx.user_id, transaction_type: 'TOPUP', amount: naira,
     direction: 'CREDIT', status: 'COMPLETED', reference: 'TOPUP-' + tx.paystack_reference
   });
+
   return { already: false, amount: naira };
 }
 
@@ -72,6 +87,7 @@ module.exports = async (req, res) => {
     const action = resolveAction(req.body.action);
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
+    // Public key is safe to expose — no auth needed
     if (action === 'get_public_key') {
       return sendSuccess(res, { public_key: process.env.PAYSTACK_PUBLIC_KEY || null });
     }
@@ -92,31 +108,31 @@ module.exports = async (req, res) => {
         const rolePath = profile.role === 'advertiser' ? 'advertiser' : 'earner';
         const callbackBase = `${process.env.APP_URL || ''}`;
 
-        // ---------- VQPAY REDIRECT ----------
-        if (gw.deposit_gateway === 'vqpay') {
-          if (!gw.method) return sendError(res, 'VQPAY_METHOD_MISSING', 'Admin must set the VQPay deposit method ID (Gateway page).', 400);
-          const result = await vqpay.createDeposit({
+        // ---------- MGM PAY REDIRECT ----------
+        if (gw.deposit_gateway === 'mgmpay') {
+          const result = await mgmpay.createDeposit({
             orderId: reference,
             amount,
-            notificationUrl: `${callbackBase}/api/vqpay-callback.js`,
+            notificationUrl: `${callbackBase}/api/mgmpay-callback.js`,
             successUrl: `${callbackBase}/${rolePath}/wallet.html?trxref=${reference}`,
-            methodId: gw.method,
-            flow: gw.flow,
-            country: gw.country,
+            methodId: gw.method || 'BANK_CARD',
+            flow: gw.flow || 'REDIRECT',
+            country: gw.country || 'NG',
             currency: 'NGN'
           });
+
           const d = result.data || result;
-          const redirectUrl = d.payment_url || d.redirect_url || d.cashier_url || d.url || null;
+          const redirectUrl = d.redirect_url || d.payment_url || d.cashier_url || d.url || null;
 
           await supabaseAdmin.from('payment_transactions').insert({
             user_id: profile.id, paystack_reference: reference, amount,
-            status: 'PENDING', gateway: 'vqpay', redirect_url: redirectUrl
+            status: 'PENDING', gateway: 'mgmpay', redirect_url: redirectUrl
           });
 
           if (!redirectUrl) {
-            throw { code: 'VQPAY_NO_REDIRECT', message: 'VQPay response had no payment link: ' + JSON.stringify(result).slice(0, 160), statusCode: 502 };
+            throw { code: 'MGMPAY_NO_REDIRECT', message: 'MGM Pay response had no redirect URL: ' + JSON.stringify(result).slice(0, 160), statusCode: 502 };
           }
-          return sendSuccess(res, { gateway: 'vqpay', reference, redirect_url: redirectUrl }, 'Redirecting to checkout...');
+          return sendSuccess(res, { gateway: 'mgmpay', reference, redirect_url: redirectUrl }, 'Redirecting to checkout...');
         }
 
         // ---------- PAYSTACK INLINE ----------
@@ -156,20 +172,24 @@ module.exports = async (req, res) => {
         if (tx.user_id !== profile.id && profile.role !== 'admin') return sendError(res, 'FORBIDDEN', 'Not your transaction.', 403);
         if (tx.status === 'SUCCESS') return sendSuccess(res, { already: true, amount: Number(tx.amount) }, 'Already credited.');
 
-        if (tx.gateway === 'vqpay') {
-          const result = await vqpay.queryDeposit(reference);
+        if (tx.gateway === 'mgmpay') {
+          const result = await mgmpay.queryDeposit(reference);
           const d = result.data || result;
-          if (vqpay.isFinalSuccess(d.status_code) || String(d.status).toUpperCase() === 'SUCCESS') {
-            const credited = await creditTopup(tx, Number(d.amount || tx.amount), d.payment_id);
+          if (mgmpay.isFinalSuccess(d.status_code)) {
+            const credited = await creditTopup(tx, Number(d.amount || tx.amount), d.payment_id, 'mgmpay');
             return sendSuccess(res, credited, credited.already ? 'Already credited.' : `₦${credited.amount.toLocaleString()} added to your wallet!`);
           }
-          return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', `VQPay status: ${d.status || 'pending'}`, 400);
+          if (mgmpay.isTerminalFail(d.status_code) || Number(d.status_code) === 6) {
+            await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED', raw_status: String(d.status || '') }).eq('id', tx.id).eq('status', 'PENDING');
+            return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', `MGM Pay status: ${d.status || 'failed'} (${d.status_code})`, 400);
+          }
+          return sendError(res, 'PAYMENT_PENDING', `MGM Pay status: ${d.status || 'waiting'} (${d.status_code})`, 400);
         }
 
         if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing.', statusCode: 500 };
         const result = await paystackVerify(reference);
         if (result.status && result.data && result.data.status === 'success') {
-          const credited = await creditTopup(tx, Number(result.data.amount) / 100, null);
+          const credited = await creditTopup(tx, Number(result.data.amount) / 100, null, 'paystack');
           return sendSuccess(res, credited, credited.already ? 'Already credited.' : `₦${credited.amount.toLocaleString()} added to your wallet!`);
         }
         await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED' }).eq('id', tx.id).eq('status', 'PENDING');
@@ -190,17 +210,17 @@ module.exports = async (req, res) => {
 
         for (const tx of stale) {
           try {
-            if (tx.gateway === 'vqpay') {
-              const r = await vqpay.queryDeposit(tx.paystack_reference);
+            if (tx.gateway === 'mgmpay') {
+              const r = await mgmpay.queryDeposit(tx.paystack_reference);
               const d = r.data || r;
-              if (vqpay.isFinalSuccess(d.status_code)) { await creditTopup(tx, Number(d.amount || tx.amount), d.payment_id); tx.status = 'SUCCESS'; }
-              else if (vqpay.isFinalFail(d.status_code)) {
+              if (mgmpay.isFinalSuccess(d.status_code)) { await creditTopup(tx, Number(d.amount || tx.amount), d.payment_id, 'mgmpay'); tx.status = 'SUCCESS'; }
+              else if (mgmpay.isTerminalFail(d.status_code) || Number(d.status_code) === 6) {
                 await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED', raw_status: String(d.status || '') }).eq('id', tx.id).eq('status', 'PENDING');
                 tx.status = 'FAILED';
               }
             } else if (PAYSTACK_SECRET) {
               const r = await paystackVerify(tx.paystack_reference);
-              if (r.status && r.data && r.data.status === 'success') { await creditTopup(tx, Number(r.data.amount) / 100, null); tx.status = 'SUCCESS'; }
+              if (r.status && r.data && r.data.status === 'success') { await creditTopup(tx, Number(r.data.amount) / 100, null, 'paystack'); tx.status = 'SUCCESS'; }
               else {
                 await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED' }).eq('id', tx.id).eq('status', 'PENDING');
                 tx.status = 'FAILED';
