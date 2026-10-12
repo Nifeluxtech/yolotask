@@ -1,163 +1,307 @@
-// /api/campaigns.js
+// /api/campaigns.js — Full campaign lifecycle: browse, start, submit, track
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
-const { createCampaign, submitForReview } = require('../lib/campaign-engine');
-const { getCampaignAnalytics } = require('../lib/analytics');
 const { supabaseAdmin } = require('../lib/supabase');
+const { sendNotification, pushToUser } = require('../lib/notifications');
 
-const isActive = (r) =>
-  r.is_active === undefined || r.is_active === null ||
-  r.is_active === true || r.is_active === 'true' || r.is_active === 't';
+/** Helper: Always join platforms/task_types to prevent "Other" labels */
+async function fetchCampaignWithMeta(queryBuilder) {
+  return await queryBuilder.select(`
+    *,
+    platforms:platform_id(id, name, logo_url),
+    task_types:task_type_id(id, name, base_advertiser_cost, base_earner_reward, premium_advertiser_cost, premium_earner_reward)
+  `);
+}
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
 
-  const { action } = req.body;
-
   try {
-    if (action === 'get_reference_data') {
-      const { profile } = await getAuthenticatedUser(req);
-      requireRole(profile, ['advertiser']);
+    const { action } = req.body;
+    if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
-      const [typesRes, interestsRes, platformsRes] = await Promise.all([
-        supabaseAdmin.from('task_types').select('*'),
-        supabaseAdmin.from('interests').select('*'),
-        supabaseAdmin.from('platforms').select('id, name, logo_url').eq('is_active', true).order('sort_order', { ascending: true }).order('name')
-      ]);
-
-      if (typesRes.error) console.error('get_reference_data task_types error:', typesRes.error);
-      if (interestsRes.error) console.error('get_reference_data interests error:', interestsRes.error);
-
-      return sendSuccess(res, {
-        task_types: (typesRes.data || []).filter(isActive),
-        interests: (interestsRes.data || []).filter(isActive),
-        platforms: platformsRes.data || []
-      });
-    }
-
-    const { profile } = await getAuthenticatedUser(req);
-    requireRole(profile, ['advertiser']);
+    const auth = await getAuthenticatedUser(req);
+    const profile = auth.profile;
 
     switch (action) {
-      case 'create': {
-        const { title, task_type_id, instructions, destination_link, target_quantity, platform_id } = req.body;
-        if (!title || !task_type_id || !instructions || !destination_link || !target_quantity) {
-          return sendError(res, 'VALIDATION_ERROR', 'Missing required fields.', 400);
-        }
-
-        // Validate platform if provided
-        let cleanPlatformId = null;
-        if (platform_id) {
-          const { data: plat } = await supabaseAdmin.from('platforms').select('id').eq('id', platform_id).eq('is_active', true).maybeSingle();
-          if (plat) cleanPlatformId = plat.id;
-        }
-
-        const campaign = await createCampaign(profile.id, { ...req.body, platform_id: cleanPlatformId });
-        return sendSuccess(res, { campaign }, 'Draft created.');
-      }
-
-      case 'submit': {
-        if (!req.body.campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
-        const result = await submitForReview(profile.id, req.body.campaignId);
-        return sendSuccess(res, {}, result.message || 'Submitted for review.');
-      }
-
-      case 'get_list': {
-        let query = supabaseAdmin.from('campaigns')
-          .select('*, task_types:task_type_id(name), platforms:platform_id(name, logo_url)')
-          .eq('advertiser_id', profile.id)
+      // ═══════════════════════════════════════════
+      // BROWSE ACTIVE CAMPAIGNS (Earner Dashboard)
+      // ═══════════════════════════════════════════
+      case 'get_active_campaigns': {
+        requireRole(profile, ['earner', 'advertiser']);
+        
+        let builder = supabaseAdmin.from('campaigns')
+          .eq('status', 'ACTIVE')
           .order('created_at', { ascending: false });
-        if (req.body.status) query = query.eq('status', req.body.status);
-        const { data, error } = await query;
+
+        // Optional filters from request body
+        if (req.body.platformId) builder = builder.eq('platform_id', req.body.platformId);
+        if (req.body.taskTypeId) builder = builder.eq('task_type_id', req.body.taskTypeId);
+        if (req.body.search) {
+          const term = `%${req.body.search}%`;
+          builder = builder.or(`title.ilike.${term},description.ilike.${term}`);
+        }
+
+        const { data, error } = await fetchCampaignWithMeta(builder);
         if (error) throw error;
-        return sendSuccess(res, { campaigns: data || [] });
+
+        // Normalize response shape for frontend safety
+        const campaigns = (data || []).map(c => ({
+          ...c,
+          platform_name: c.platforms?.name || 'General',
+          platform_logo: c.platforms?.logo_url || null,
+          task_type_name: c.task_types?.name || 'Task',
+          earn_amount: c.tier === 'PREMIUM'
+            ? Number(c.task_types?.premium_earner_reward || 0)
+            : Number(c.task_types?.base_earner_reward || 0),
+          slots_left: Math.max(0, (c.total_slots || 0) - (c.filled_slots || 0))
+        }));
+
+        return sendSuccess(res, { campaigns });
       }
 
-      case 'get_analytics': {
-        if (!req.body.campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
-        const analytics = await getCampaignAnalytics(profile.id, req.body.campaignId);
-        return sendSuccess(res, { analytics });
-      }
-
-      case 'update_campaign': {
-        const { campaignId, title, instructions, destination_link } = req.body;
+      // ═══════════════════════════════════════════
+      // SINGLE CAMPAIGN DETAILS
+      // ═══════════════════════════════════════════
+      case 'get_campaign_details': {
+        requireRole(profile, ['earner', 'advertiser']);
+        const { campaignId } = req.body;
         if (!campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
-        const { error } = await supabaseAdmin.from('campaigns')
-          .update({ title, instructions, destination_link, updated_at: new Date().toISOString() })
-          .eq('id', campaignId).eq('advertiser_id', profile.id);
-        if (error) throw error;
-        return sendSuccess(res, {}, 'Campaign updated.');
-      }
 
-      case 'change_status': {
-        const { campaignId, newStatus } = req.body;
-        if (!campaignId || !newStatus) return sendError(res, 'VALIDATION_ERROR', 'Missing fields.', 400);
-        if (!['PAUSED', 'LIVE', 'CANCELLED'].includes(newStatus)) return sendError(res, 'VALIDATION_ERROR', 'Invalid status.', 400);
-        const { error } = await supabaseAdmin.rpc('change_campaign_status', {
-          p_campaign_id: campaignId, p_advertiser_id: profile.id, p_new_status: newStatus
+        const { data, error } = await fetchCampaignWithMeta(
+          supabaseAdmin.from('campaigns').eq('id', campaignId).single()
+        );
+        if (error) throw error;
+
+        // Check if this user already has an active submission for this campaign
+        const { data: existingSub } = await supabaseAdmin.from('task_submissions')
+          .select('id, status')
+          .eq('campaign_id', campaignId)
+          .eq('earner_id', profile.id)
+          .in('status', ['PENDING', 'UNDER_REVIEW'])
+          .maybeSingle();
+
+        return sendSuccess(res, { 
+          campaign: {
+            ...data,
+            platform_name: data.platforms?.name || 'General',
+            platform_logo: data.platforms?.logo_url || null,
+            task_type_name: data.task_types?.name || 'Task',
+            earn_amount: data.tier === 'PREMIUM'
+              ? Number(data.task_types?.premium_earner_reward || 0)
+              : Number(data.task_types?.base_earner_reward || 0),
+            slots_left: Math.max(0, (data.total_slots || 0) - (data.filled_slots || 0)),
+            has_pending_submission: !!existingSub
+          }
         });
-        if (error) throw { code: 'STATUS_ERROR', message: error.message, statusCode: 400 };
-        return sendSuccess(res, {}, `Campaign ${newStatus.toLowerCase()} successfully.`);
       }
 
-      case 'get_advertiser_settings': {
-        const { data, error } = await supabaseAdmin.from('profiles')
-          .select('business_name, business_website, business_contact_email, auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults')
-          .eq('id', profile.id).single();
-        if (error) throw error;
-        return sendSuccess(res, { settings: data });
+      // ═══════════════════════════════════════════
+      // START TASK (Claim Slot + Create Submission)
+      // ═══════════════════════════════════════════
+      case 'start_task': {
+        requireRole(profile, ['earner']);
+        const { campaignId } = req.body;
+        if (!campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
+
+        // 1. Verify campaign exists, is active, and has slots
+        const { data: camp, error: campErr } = await supabaseAdmin.from('campaigns')
+          .select('*')
+          .eq('id', campaignId)
+          .eq('status', 'ACTIVE')
+          .single();
+        if (campErr || !camp) return sendError(res, 'NOT_FOUND', 'Campaign not found or inactive.', 404);
+        if ((camp.total_slots || 0) <= (camp.filled_slots || 0)) {
+          return sendError(res, 'SLOTS_FULL', 'This campaign is fully booked.', 400);
+        }
+
+        // 2. Prevent duplicate pending submissions per campaign
+        const { data: dupCheck } = await supabaseAdmin.from('task_submissions')
+          .select('id')
+          .eq('campaign_id', campaignId)
+          .eq('earner_id', profile.id)
+          .in('status', ['PENDING', 'UNDER_REVIEW'])
+          .maybeSingle();
+        if (dupCheck) {
+          return sendError(res, 'ALREADY_STARTED', 'You already have an active submission for this task.', 400);
+        }
+
+        // 3. Atomically increment filled_slots AND create submission in one RPC call
+        //    This prevents race conditions where two users claim the last slot simultaneously
+        const { data: subResult, error: rpcErr } = await supabaseAdmin.rpc('claim_campaign_slot', {
+          p_campaign_id: campaignId,
+          p_earner_id: profile.id
+        });
+        if (rpcErr) throw rpcErr;
+        if (!subResult || !subResult.submission_id) {
+          return sendError(res, 'CLAIM_FAILED', 'Could not claim slot. Try again.', 500);
+        }
+
+        return sendSuccess(res, {
+          submissionId: subResult.submission_id,
+          expiresAt: subResult.expires_at,
+          message: 'Slot claimed! Complete the task and submit proof before expiry.'
+        }, 'Task started successfully.');
       }
 
-      case 'update_advertiser_settings': {
-        const { business_name, business_website, business_contact_email, auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults } = req.body;
-
-        const hours = Number(auto_approve_hours);
-        if (!Number.isInteger(hours) || hours < 12 || hours > 336) return sendError(res, 'VALIDATION_ERROR', 'Approval window must be between 12 and 336 hours.', 400);
-
-        let threshold = null;
-        if (low_balance_threshold !== null && low_balance_threshold !== undefined && String(low_balance_threshold).trim() !== '') {
-          threshold = Number(low_balance_threshold);
-          if (isNaN(threshold) || threshold < 0) return sendError(res, 'VALIDATION_ERROR', 'Invalid balance threshold.', 400);
+      // ═══════════════════════════════════════════
+      // SUBMIT PROOF (Upload Evidence)
+      // ═══════════════════════════════════════════
+      case 'submit_proof': {
+        requireRole(profile, ['earner']);
+        const { submissionId, proofUrl, comment } = req.body;
+        if (!submissionId || !proofUrl) {
+          return sendError(res, 'VALIDATION_ERROR', 'Submission ID and proof URL required.', 400);
         }
 
-        let cleanEmail = null;
-        if (business_contact_email && String(business_contact_email).trim() !== '') {
-          cleanEmail = String(business_contact_email).trim();
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return sendError(res, 'VALIDATION_ERROR', 'Invalid contact email.', 400);
+        // 1. Verify submission belongs to this user and is still PENDING
+        const { data: sub, error: subErr } = await supabaseAdmin.from('task_submissions')
+          .select('*, campaigns:campaign_id(title, verification_window_hours)')
+          .eq('id', submissionId)
+          .eq('earner_id', profile.id)
+          .eq('status', 'PENDING')
+          .single();
+        if (subErr || !sub) return sendError(res, 'NOT_FOUND', 'Submission not found or already processed.', 404);
+
+        // 2. Check expiry window
+        const createdAt = new Date(sub.created_at).getTime();
+        const windowHours = sub.campaigns?.verification_window_hours || 24;
+        const deadline = createdAt + (windowHours * 60 * 60 * 1000);
+        if (Date.now() > deadline) {
+          await supabaseAdmin.from('task_submissions')
+            .update({ status: 'EXPIRED', updated_at: new Date().toISOString() })
+            .eq('id', submissionId);
+          return sendError(res, 'EXPIRED', 'Submission window closed. Contact support if this seems wrong.', 400);
         }
 
-        let cleanSite = null;
-        if (business_website && String(business_website).trim() !== '') {
-          cleanSite = String(business_website).trim();
-          if (!/^https?:\/\//i.test(cleanSite)) cleanSite = 'https://' + cleanSite;
-          try { new URL(cleanSite); } catch (e) { return sendError(res, 'VALIDATION_ERROR', 'Invalid website URL.', 400); }
-        }
-
-        const defaults = campaign_defaults || {};
-        const safeDefaults = {
-          task_type_id: typeof defaults.task_type_id === 'string' ? defaults.task_type_id : null,
-          is_targeted: !!defaults.is_targeted,
-          genders: Array.isArray(defaults.genders) ? defaults.genders.filter(g => g === 'male' || g === 'female') : [],
-          interest_ids: Array.isArray(defaults.interest_ids) ? defaults.interest_ids.slice(0, 20) : []
-        };
-
-        const { data, error } = await supabaseAdmin.from('profiles')
+        // 3. Update submission with proof
+        const { error: updErr } = await supabaseAdmin.from('task_submissions')
           .update({
-            business_name: (business_name || '').trim() || null,
-            business_website: cleanSite,
-            business_contact_email: cleanEmail,
-            auto_approve_enabled: !!auto_approve_enabled,
-            auto_approve_hours: hours,
-            low_balance_threshold: threshold,
-            campaign_defaults: safeDefaults,
+            proof_url: proofUrl,
+            comment: (comment || '').trim().slice(0, 500) || null,
+            status: 'UNDER_REVIEW',
+            submitted_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
-          .eq('id', profile.id)
-          .select('business_name, business_website, business_contact_email, auto_approve_enabled, auto_approve_hours, low_balance_threshold, campaign_defaults')
-          .single();
+          .eq('id', submissionId);
+        if (updErr) throw updErr;
+
+        // 4. Notify advertiser their task has a new review item
+        const { data: advProfile } = await supabaseAdmin.from('profiles')
+          .select('id').eq('id', sub.campaigns?.advertiser_id).single();
+        if (advProfile) {
+          await sendNotification(advProfile.id, 'New Task Submission', 
+            `"${sub.campaigns?.title}" received a new proof submission awaiting your review.`, 'CAMPAIGN');
+        }
+
+        return sendSuccess(res, {}, 'Proof submitted! You\'ll be notified when reviewed.');
+      }
+
+      // ═══════════════════════════════════════════
+      // MY TASKS (Earner History & Active)
+      // ═══════════════════════════════════════════
+      case 'get_my_tasks': {
+        requireRole(profile, ['earner']);
+        const statusFilter = req.body.status; // optional: PENDING | UNDER_REVIEW | APPROVED | REJECTED | EXPIRED
+        
+        let builder = supabaseAdmin.from('task_submissions')
+          .eq('earner_id', profile.id)
+          .order('created_at', { ascending: false });
+        
+        if (statusFilter) builder = builder.eq('status', statusFilter);
+
+        const { data, error } = await builder.select(`
+          *,
+          campaigns:campaign_id(id, title, description, target_link, instructions, status, verification_window_hours),
+          platforms:campaigns(platform_id->platforms(name, logo_url))
+        `);
         if (error) throw error;
-        return sendSuccess(res, { settings: data }, 'Business settings saved.');
+
+        const tasks = (data || []).map(t => ({
+          ...t,
+          platform_name: t.platforms?.name || 'General',
+          platform_logo: t.platforms?.logo_url || null,
+          campaign_title: t.campaigns?.title || 'Unknown Task',
+          campaign_link: t.campaigns?.target_link || '#',
+          is_expired: (() => {
+            if (!t.campaigns?.verification_window_hours || t.status !== 'PENDING') return false;
+            const deadline = new Date(t.created_at).getTime() + (t.campaigns.verification_window_hours * 3600000);
+            return Date.now() > deadline;
+          })()
+        }));
+
+        return sendSuccess(res, { tasks });
+      }
+
+      // ═══════════════════════════════════════════
+      // ADVERTISER: VIEW OWN CAMPAIGN SUBMISSIONS
+      // ═══════════════════════════════════════════
+      case 'get_campaign_submissions': {
+        requireRole(profile, ['advertiser']);
+        const { campaignId } = req.body;
+        if (!campaignId) return sendError(res, 'VALIDATION_ERROR', 'Campaign ID required.', 400);
+
+        // Verify ownership
+        const { data: camp } = await supabaseAdmin.from('campaigns')
+          .select('advertiser_id').eq('id', campaignId).single();
+        if (!camp || camp.advertiser_id !== profile.id) {
+          return sendError(res, 'FORBIDDEN', 'You do not own this campaign.', 403);
+        }
+
+        const { data, error } = await supabaseAdmin.from('task_submissions')
+          .eq('campaign_id', campaignId)
+          .order('submitted_at', { ascending: false })
+          .select(`
+            *,
+            profiles:earner_id(full_name, avatar_url, email)
+          `);
+        if (error) throw error;
+
+        return sendSuccess(res, { submissions: data || [] });
+      }
+
+      // ═══════════════════════════════════════════
+      // ADVERTISER: REVIEW A SUBMISSION
+      // ═══════════════════════════════════════════
+      case 'review_submission': {
+        requireRole(profile, ['advertiser']);
+        const { submissionId, reviewAction, adminNote } = req.body;
+        if (!submissionId || !['APPROVE', 'REJECT'].includes(reviewAction)) {
+          return sendError(res, 'VALIDATION_ERROR', 'Valid submissionId and reviewAction required.', 400);
+        }
+
+        // 1. Load submission + verify advertiser owns the parent campaign
+        const { data: sub, error: subErr } = await supabaseAdmin.from('task_submissions')
+          .select('*, campaigns:campaign_id(advertiser_id, title, task_type_id)')
+          .eq('id', submissionId)
+          .eq('status', 'UNDER_REVIEW')
+          .single();
+        if (subErr || !sub) return sendError(res, 'NOT_FOUND', 'Submission not found or already reviewed.', 404);
+        if (sub.campaigns.advertiser_id !== profile.id) {
+          return sendError(res, 'FORBIDDEN', 'Not your campaign.', 403);
+        }
+
+        // 2. Execute approval/rejection via atomic RPC (handles wallet credit/debit safely)
+        const finalStatus = reviewAction === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+        const { error: rpcErr } = await supabaseAdmin.rpc('process_task_review', {
+          p_submission_id: submissionId,
+          p_advertiser_id: profile.id,
+          p_action: finalStatus,
+          p_note: (adminNote || '').trim().slice(0, 500) || null
+        });
+        if (rpcErr) throw rpcErr;
+
+        // 3. Notify earner
+        const msg = finalStatus === 'APPROVED'
+          ? `✅ Your "${sub.campaigns.title}" submission was approved! Rewards credited to wallet.`
+          : `❌ Your "${sub.campaigns.title}" submission was rejected.${adminNote ? ' Reason: ' + adminNote : ''}`;
+        await sendNotification(sub.earner_id, 
+          finalStatus === 'APPROVED' ? 'Task Approved!' : 'Task Rejected', msg, 'TASK');
+        pushToUser(sub.earner_id,
+          finalStatus === 'APPROVED' ? 'Rewards Credited 💰' : 'Submission Update', msg);
+
+        return sendSuccess(res, {}, `Submission ${finalStatus.toLowerCase()}.`);
       }
 
       default:
@@ -166,6 +310,6 @@ module.exports = async (req, res) => {
   } catch (err) {
     if (err.code) return sendError(res, err.code, err.message, err.statusCode || 400);
     console.error('Campaigns API Error:', err);
-    return sendError(res, 'INTERNAL_ERROR', 'Server error.');
+    return sendError(res, 'INTERNAL_ERROR', err.message || 'Server error.', 500);
   }
 };
