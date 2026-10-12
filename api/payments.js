@@ -1,7 +1,8 @@
-// /api/payments.js — Self-contained Paystack top-up engine
+// /api/payments.js — dual-gateway deposit engine (Paystack inline + VQPay redirect)
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
+const vqpay = require('../lib/vqpay');
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -10,24 +11,30 @@ function resolveAction(raw) {
   const exact = {
     'initialize_topup': 'initialize_topup', 'initialize_payment': 'initialize_topup', 'initiate_payment': 'initialize_topup',
     'initiate_topup': 'initialize_topup', 'create_payment': 'initialize_topup', 'create_topup': 'initialize_topup',
-    'start_payment': 'initialize_topup', 'paystack_initialize': 'initialize_topup', 'init_payment': 'initialize_topup',
-    'initialize': 'initialize_topup', 'initiate': 'initialize_topup', 'pay': 'initialize_topup',
-
+    'start_payment': 'initialize_topup', 'paystack_initialize': 'initialize_topup', 'initialize': 'initialize_topup', 'pay': 'initialize_topup',
     'verify_topup': 'verify_topup', 'verify_payment': 'verify_topup', 'confirm_payment': 'verify_topup',
-    'confirm_topup': 'verify_topup', 'validate_payment': 'verify_topup', 'paystack_verify': 'verify_topup',
-    'check_payment': 'verify_topup', 'verify': 'verify_topup', 'confirm': 'verify_topup',
-
+    'confirm_topup': 'verify_topup', 'validate_payment': 'verify_topup', 'paystack_verify': 'verify_topup', 'verify': 'verify_topup',
     'get_topups': 'get_topups', 'get_topup_history': 'get_topups', 'get_payment_history': 'get_topups',
-    'get_topup_transactions': 'get_topups', 'get_payments': 'get_topups', 'get_deposits': 'get_topups',
-    'get_deposit_history': 'get_topups', 'get_payment_list': 'get_topups', 'get_topup_list': 'get_topups',
-    'get_history': 'get_topups', 'topup_history': 'get_topups', 'payment_history': 'get_topups', 'history': 'get_topups'
+    'get_payments': 'get_topups', 'get_deposits': 'get_topups', 'get_history': 'get_topups', 'history': 'get_topups'
   };
   if (exact[a]) return exact[a];
-  if (/(initialize|initiate|create|start|init)/.test(a) && /(pay|topup|top_up|deposit|fund)/.test(a)) return 'initialize_topup';
-  if (/(verify|confirm|validate|check)/.test(a) && /(pay|topup|top_up|deposit|ref)/.test(a)) return 'verify_topup';
-  if (/(history|list|all)/.test(a) && /(topup|top_up|deposit|payment)/.test(a)) return 'get_topups';
-  if (/history/.test(a) && !/(withdraw|submission|notification)/.test(a)) return 'get_topups';
+  if (/(initialize|initiate|create|start)/.test(a) && /(pay|topup|deposit|fund)/.test(a)) return 'initialize_topup';
+  if (/(verify|confirm|validate|check)/.test(a) && /(pay|topup|deposit|ref)/.test(a)) return 'verify_topup';
+  if (/(history|list|all)/.test(a) && /(topup|deposit|payment)/.test(a)) return 'get_topups';
   return raw;
+}
+
+async function gatewaySettings() {
+  const { data } = await supabaseAdmin.from('platform_settings').select('key, value')
+    .in('key', ['deposit_gateway', 'vqpay_country', 'vqpay_deposit_method', 'vqpay_deposit_flow']);
+  const map = {};
+  (data || []).forEach(r => { map[r.key] = r.value; });
+  return {
+    deposit_gateway: map.deposit_gateway || 'paystack',
+    country: map.vqpay_country || 'NG',
+    method: map.vqpay_deposit_method || '',
+    flow: map.vqpay_deposit_flow || 'REDIRECT'
+  };
 }
 
 async function paystackVerify(reference) {
@@ -37,16 +44,12 @@ async function paystackVerify(reference) {
   return await resp.json();
 }
 
-async function creditTopup(tx, paystackData) {
+async function creditTopup(tx, naira, vqPaymentId) {
+  const patch = { status: 'SUCCESS' };
+  if (vqPaymentId) patch.vqpay_payment_id = vqPaymentId;
   const { data: claimed } = await supabaseAdmin.from('payment_transactions')
-    .update({ status: 'SUCCESS' })
-    .eq('id', tx.id)
-    .eq('status', 'PENDING')
-    .select();
-
+    .update(patch).eq('id', tx.id).eq('status', 'PENDING').select();
   if (!claimed || claimed.length === 0) return { already: true, amount: Number(tx.amount) };
-
-  const naira = Number(paystackData.amount) / 100;
 
   const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', tx.user_id).single();
   if (wallet) {
@@ -54,12 +57,10 @@ async function creditTopup(tx, paystackData) {
       .update({ available_balance: Number(wallet.available_balance) + naira, updated_at: new Date().toISOString() })
       .eq('user_id', tx.user_id);
   }
-
   await supabaseAdmin.from('wallet_ledger').insert({
     user_id: tx.user_id, transaction_type: 'TOPUP', amount: naira,
     direction: 'CREDIT', status: 'COMPLETED', reference: 'TOPUP-' + tx.paystack_reference
   });
-
   return { already: false, amount: naira };
 }
 
@@ -71,7 +72,6 @@ module.exports = async (req, res) => {
     const action = resolveAction(req.body.action);
     if (!action) return sendError(res, 'VALIDATION_ERROR', 'Missing action.', 400);
 
-    // Public key is safe to expose (it's public by design) — no auth needed
     if (action === 'get_public_key') {
       return sendSuccess(res, { public_key: process.env.PAYSTACK_PUBLIC_KEY || null });
     }
@@ -83,15 +83,44 @@ module.exports = async (req, res) => {
     switch (action) {
       case 'initialize_topup': {
         requireRole(profile, ['earner', 'advertiser']);
-        if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing in Vercel env.', statusCode: 500 };
-
         const amount = Number(req.body.amount);
         if (!amount || amount < 100) return sendError(res, 'VALIDATION_ERROR', 'Minimum top-up is ₦100.', 400);
         if (amount > 10000000) return sendError(res, 'VALIDATION_ERROR', 'Amount too large.', 400);
 
+        const gw = await gatewaySettings();
         const reference = 'TOP-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
         const rolePath = profile.role === 'advertiser' ? 'advertiser' : 'earner';
+        const callbackBase = `${process.env.APP_URL || ''}`;
 
+        // ---------- VQPAY REDIRECT ----------
+        if (gw.deposit_gateway === 'vqpay') {
+          if (!gw.method) return sendError(res, 'VQPAY_METHOD_MISSING', 'Admin must set the VQPay deposit method ID (Gateway page).', 400);
+          const result = await vqpay.createDeposit({
+            orderId: reference,
+            amount,
+            notificationUrl: `${callbackBase}/api/vqpay-callback.js`,
+            successUrl: `${callbackBase}/${rolePath}/wallet.html?trxref=${reference}`,
+            methodId: gw.method,
+            flow: gw.flow,
+            country: gw.country,
+            currency: 'NGN'
+          });
+          const d = result.data || result;
+          const redirectUrl = d.payment_url || d.redirect_url || d.cashier_url || d.url || null;
+
+          await supabaseAdmin.from('payment_transactions').insert({
+            user_id: profile.id, paystack_reference: reference, amount,
+            status: 'PENDING', gateway: 'vqpay', redirect_url: redirectUrl
+          });
+
+          if (!redirectUrl) {
+            throw { code: 'VQPAY_NO_REDIRECT', message: 'VQPay response had no payment link: ' + JSON.stringify(result).slice(0, 160), statusCode: 502 };
+          }
+          return sendSuccess(res, { gateway: 'vqpay', reference, redirect_url: redirectUrl }, 'Redirecting to checkout...');
+        }
+
+        // ---------- PAYSTACK INLINE ----------
+        if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing.', statusCode: 500 };
         const resp = await fetch('https://api.paystack.co/transaction/initialize', {
           method: 'POST',
           headers: { Authorization: `Bearer ${PAYSTACK_SECRET}`, 'Content-Type': 'application/json' },
@@ -99,24 +128,18 @@ module.exports = async (req, res) => {
             email: userEmail,
             amount: Math.round(amount * 100),
             reference,
-            callback_url: `${process.env.APP_URL || ''}/${rolePath}/wallet.html`
+            callback_url: `${callbackBase}/${rolePath}/wallet.html`
           })
         });
         const result = await resp.json();
-
         if (!result.status || !result.data) {
           throw { code: 'PAYSTACK_INIT_FAILED', message: result.message || 'Could not start payment.', statusCode: 502 };
         }
-
         await supabaseAdmin.from('payment_transactions').insert({
-          user_id: profile.id,
-          paystack_reference: reference,
-          amount,
-          status: 'PENDING'
+          user_id: profile.id, paystack_reference: reference, amount, status: 'PENDING', gateway: 'paystack'
         });
-
         return sendSuccess(res, {
-          reference,
+          gateway: 'paystack', reference,
           authorization_url: result.data.authorization_url,
           access_code: result.data.access_code
         }, 'Payment initialized.');
@@ -126,56 +149,64 @@ module.exports = async (req, res) => {
         requireRole(profile, ['earner', 'advertiser', 'admin']);
         const { reference } = req.body;
         if (!reference) return sendError(res, 'VALIDATION_ERROR', 'Reference required.', 400);
-        if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing.', statusCode: 500 };
 
         const { data: tx } = await supabaseAdmin.from('payment_transactions').select('*')
           .eq('paystack_reference', reference).maybeSingle();
         if (!tx) return sendError(res, 'NOT_FOUND', 'Top-up record not found.', 404);
         if (tx.user_id !== profile.id && profile.role !== 'admin') return sendError(res, 'FORBIDDEN', 'Not your transaction.', 403);
+        if (tx.status === 'SUCCESS') return sendSuccess(res, { already: true, amount: Number(tx.amount) }, 'Already credited.');
 
-        if (tx.status === 'SUCCESS') {
-          return sendSuccess(res, { already: true, amount: Number(tx.amount) }, 'Already credited.');
+        if (tx.gateway === 'vqpay') {
+          const result = await vqpay.queryDeposit(reference);
+          const d = result.data || result;
+          if (vqpay.isFinalSuccess(d.status_code) || String(d.status).toUpperCase() === 'SUCCESS') {
+            const credited = await creditTopup(tx, Number(d.amount || tx.amount), d.payment_id);
+            return sendSuccess(res, credited, credited.already ? 'Already credited.' : `₦${credited.amount.toLocaleString()} added to your wallet!`);
+          }
+          return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', `VQPay status: ${d.status || 'pending'}`, 400);
         }
 
+        if (!PAYSTACK_SECRET) throw { code: 'PAYSTACK_NOT_CONFIGURED', message: 'PAYSTACK_SECRET_KEY missing.', statusCode: 500 };
         const result = await paystackVerify(reference);
         if (result.status && result.data && result.data.status === 'success') {
-          const credited = await creditTopup(tx, result.data);
+          const credited = await creditTopup(tx, Number(result.data.amount) / 100, null);
           return sendSuccess(res, credited, credited.already ? 'Already credited.' : `₦${credited.amount.toLocaleString()} added to your wallet!`);
         }
-
         await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED' }).eq('id', tx.id).eq('status', 'PENDING');
         return sendError(res, 'PAYMENT_NOT_SUCCESSFUL', 'Payment was not completed.', 400);
       }
 
       case 'get_topups': {
         requireRole(profile, ['earner', 'advertiser']);
-
         const { data, error } = await supabaseAdmin.from('payment_transactions').select('*')
           .eq('user_id', profile.id).order('created_at', { ascending: false }).limit(30);
         if (error) throw error;
-
         const topups = data || [];
 
-        if (PAYSTACK_SECRET) {
-          const stale = topups.filter(t =>
-            t.status === 'PENDING' &&
-            (Date.now() - new Date(t.created_at).getTime()) > 2 * 60 * 1000
-          ).slice(0, 5);
+        // Rescue stale PENDING rows (both gateways)
+        const stale = topups.filter(t =>
+          t.status === 'PENDING' && (Date.now() - new Date(t.created_at).getTime()) > 2 * 60 * 1000
+        ).slice(0, 5);
 
-          for (const tx of stale) {
-            try {
-              const result = await paystackVerify(tx.paystack_reference);
-              if (result.status && result.data && result.data.status === 'success') {
-                await creditTopup(tx, result.data);
-                tx.status = 'SUCCESS';
-              } else {
+        for (const tx of stale) {
+          try {
+            if (tx.gateway === 'vqpay') {
+              const r = await vqpay.queryDeposit(tx.paystack_reference);
+              const d = r.data || r;
+              if (vqpay.isFinalSuccess(d.status_code)) { await creditTopup(tx, Number(d.amount || tx.amount), d.payment_id); tx.status = 'SUCCESS'; }
+              else if (vqpay.isFinalFail(d.status_code)) {
+                await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED', raw_status: String(d.status || '') }).eq('id', tx.id).eq('status', 'PENDING');
+                tx.status = 'FAILED';
+              }
+            } else if (PAYSTACK_SECRET) {
+              const r = await paystackVerify(tx.paystack_reference);
+              if (r.status && r.data && r.data.status === 'success') { await creditTopup(tx, Number(r.data.amount) / 100, null); tx.status = 'SUCCESS'; }
+              else {
                 await supabaseAdmin.from('payment_transactions').update({ status: 'FAILED' }).eq('id', tx.id).eq('status', 'PENDING');
                 tx.status = 'FAILED';
               }
-            } catch (e) {
-              console.error('rescue verify error:', e.message);
             }
-          }
+          } catch (e) { console.error('rescue verify error:', e.message); }
         }
 
         return sendSuccess(res, { topups });
