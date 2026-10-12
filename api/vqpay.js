@@ -1,4 +1,4 @@
-// /api/vqpay.js — gateway control + VQPay payout execution
+// /api/vqpay.js — gateway control + VQPay payout execution + connection probe
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
@@ -31,7 +31,7 @@ async function findVqpayBankCode(bankName) {
   const { data } = await supabaseAdmin.from('vqpay_bank_map').select('*');
   const matches = (data || []).filter(m => name.includes(m.match_name));
   if (!matches.length) return null;
-  matches.sort((a, b) => b.match_name.length - a.match_name.length); // longest match wins
+  matches.sort((a, b) => b.match_name.length - a.match_name.length);
   return matches[0];
 }
 
@@ -73,6 +73,13 @@ module.exports = async (req, res) => {
         return sendSuccess(res, {}, 'Gateway settings saved. Live immediately.');
       }
 
+      // ---------- CONNECTION PROBE ----------
+      case 'ping': {
+        requireRole(profile, ['admin']);
+        const report = await vqpay.pingDomains();
+        return sendSuccess(res, { report });
+      }
+
       case 'payout_balance': {
         requireRole(profile, ['admin']);
         const data = await vqpay.getBalance();
@@ -89,7 +96,6 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { banks: data || [] });
       }
 
-      // ---------- EXECUTE A PAYOUT VIA VQPAY ----------
       case 'process_payout': {
         requireRole(profile, ['admin']);
         const s = await readGatewaySettings();
@@ -157,7 +163,6 @@ module.exports = async (req, res) => {
           patch.status = 'COMPLETED'; patch.processed_at = new Date().toISOString();
         } else if (vqpay.isFinalFail(code) && (wd.status === 'PENDING' || wd.status === 'PROCESSING')) {
           patch.status = 'FAILED';
-          // refund
           const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', wd.user_id).single();
           if (wallet && wd.status !== 'FAILED') {
             await supabaseAdmin.from('wallets')
