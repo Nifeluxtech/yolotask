@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Gateways - YOLOTASK Admin</title>
+  <link rel="stylesheet" href="/css/global.css" />
+  <link rel="stylesheet" href="/css/ui-components.css" />
+  <link rel="stylesheet" href="/css/admin.css" />
+</head>
+<body>
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
+      <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/gateway.html" class="active">🔀 Gateways</a>
+      <a href="/admin/sms.html">📱 SMS Control</a>
+      <a href="/admin/withdrawals.html">💸 Withdrawals</a>
+      <a href="/admin/campaigns.html">📝 Campaigns</a>
+      <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/settings.html">⚙️ Settings</a>
+      <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-header">
+        <div class="page-title">Payment Gateways</div>
+        <span class="badge cyan" id="vqBal">VQPay: …</span>
+      </header>
+
+      <div class="panel">
+        <h3>Gateway Switches (live immediately)</h3>
+        <label class="f-label">Deposits / Top-ups</label>
+        <select id="deposit_gateway" class="f-input">
+          <option value="paystack">Paystack (inline card checkout)</option>
+          <option value="vqpay">VQPay (redirect cashier)</option>
+        </select>
+        <label class="f-label">Withdrawals / Payouts</label>
+        <select id="payout_gateway" class="f-input">
+          <option value="manual">Manual (admin sends bank transfer)</option>
+          <option value="vqpay">VQPay auto-payout to banks</option>
+        </select>
+        <label class="f-label">VQPay Country Code</label>
+        <input type="text" id="vqpay_country" class="f-input" maxlength="4" placeholder="NG" />
+        <label class="f-label">VQPay Nigeria Deposit Method ID (from provider)</label>
+        <input type="text" id="vqpay_deposit_method" class="f-input" placeholder="e.g. method id given by VQPay" />
+        <label class="f-label">VQPay Deposit Flow</label>
+        <select id="vqpay_deposit_flow" class="f-input">
+          <option value="REDIRECT">REDIRECT (cashier link)</option>
+          <option value="DIRECT">DIRECT (invoice details)</option>
+        </select>
+        <button class="btn btn-primary" style="padding:10px 20px; font-size:13px;" id="saveBtn">Save Gateway Settings</button>
+      </div>
+
+      <div class="panel">
+        <h3>VQPay → Nigerian Bank Code Map</h3>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Used to route auto-payouts. Longest keyword match wins. Unmapped banks fall back to manual payout with a clear error.</p>
+        <div class="table-wrap" id="mapWrap"><div class="skeleton skeleton-text"></div></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js"></script>
+  <script>
+    (async () => {
+      const profile = await checkAuthAndRedirect('admin');
+      if (!profile) return;
+      loadSettings(); loadBalance(); loadMap();
+    })();
+
+    async function loadSettings() {
+      try {
+        const r = await apiClient.request('vqpay.js', { action: 'get_gateway_settings' });
+        const s = r.data.settings;
+        document.getElementById('deposit_gateway').value = s.deposit_gateway;
+        document.getElementById('payout_gateway').value = s.payout_gateway;
+        document.getElementById('vqpay_country').value = s.vqpay_country;
+        document.getElementById('vqpay_deposit_method').value = s.vqpay_deposit_method;
+        document.getElementById('vqpay_deposit_flow').value = s.vqpay_deposit_flow;
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    async function loadBalance() {
+      const badge = document.getElementById('vqBal');
+      try {
+        const r = await apiClient.request('vqpay.js', { action: 'payout_balance' });
+        badge.textContent = `VQPay: $${Number(r.data.available).toFixed(2)} avail`;
+        badge.className = 'badge green';
+      } catch (err) {
+        badge.textContent = 'VQPay: ERR';
+        badge.className = 'badge red';
+      }
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      try {
+        await apiClient.request('vqpay.js', {
+          action: 'update_gateway_settings',
+          settings: {
+            deposit_gateway: document.getElementById('deposit_gateway').value,
+            payout_gateway: document.getElementById('payout_gateway').value,
+            vqpay_country: document.getElementById('vqpay_country').value.trim() || 'NG',
+            vqpay_deposit_method: document.getElementById('vqpay_deposit_method').value.trim(),
+            vqpay_deposit_flow: document.getElementById('vqpay_deposit_flow').value
+          }
+        });
+        showToast('Gateway settings saved.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+
+    async function loadMap() {
+      try {
+        const r = await apiClient.request('vqpay.js', { action: 'get_bank_map' });
+        const banks = r.data.banks || [];
+        document.getElementById('mapWrap').innerHTML = `
+          <table class="admin-table"><thead><tr><th>Matches bank name containing</th><th>VQPay code</th><th>VQPay bank</th></tr></thead><tbody>
+          ${banks.map(b => `<tr><td>${escapeHtml(b.match_name)}</td><td>${escapeHtml(b.vqpay_code)}</td><td>${escapeHtml(b.vqpay_name)}</td></tr>`).join('')}
+          </tbody></table>`;
+      } catch (err) {
+        document.getElementById('mapWrap').innerHTML = `<div style="color:var(--error); font-size:13px;">${escapeHtml(err.message)}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
