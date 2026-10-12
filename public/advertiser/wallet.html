@@ -40,6 +40,7 @@
     </div>
   </main>
 
+  <!-- Paystack Inline v2 (only used when gateway=paystack) -->
   <script src="https://js.paystack.co/v2/inline.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/auth.js"></script>
@@ -58,8 +59,8 @@
         publicKey = k.data.public_key || null;
       } catch (e) {}
       try {
-        const g = await apiClient.request('vqpay.js', { action: 'get_gateway_settings' });
-        document.getElementById('gwLabel').textContent = g.data.settings.deposit_gateway === 'vqpay' ? 'VQPay' : 'Paystack';
+        const g = await apiClient.request('mgmpay.js', { action: 'get_gateway_settings' });
+        document.getElementById('gwLabel').textContent = g.data.settings.deposit_gateway === 'mgmpay' ? 'MGM Pay' : 'Paystack';
       } catch (e) {}
 
       handleReturnReference();
@@ -81,7 +82,7 @@
           : list.map(t => `
             <div class="hist-row">
               <div>
-                <div style="font-weight:800; font-size:16px;">${formatCurrency(t.amount)} <span class="gw-badge">${t.gateway === 'vqpay' ? 'VQPay' : 'Paystack'}</span></div>
+                <div style="font-weight:800; font-size:16px;">${formatCurrency(t.amount)} <span class="gw-badge">${t.gateway === 'mgmpay' ? 'MGM Pay' : 'Paystack'}</span></div>
                 <div style="font-size:12px; color:var(--text-secondary);">${formatDate(t.created_at)} • ${t.status}</div>
               </div>
               <div style="display:flex; gap:8px; align-items:center;">
@@ -123,13 +124,13 @@
         const init = await apiClient.request('payments.js', { action: 'initialize_topup', amount });
         const reference = init.data.reference;
 
-        // ---------- VQPay: redirect to cashier ----------
-        if (init.data.gateway === 'vqpay') {
+        // ---------- MGM Pay: redirect to cashier ----------
+        if (init.data.gateway === 'mgmpay') {
           window.location.href = init.data.redirect_url;
           return;
         }
 
-        // ---------- Paystack inline (v2, v1 fallback, redirect fallback) ----------
+        // ---------- Paystack inline (v2 → v1 → redirect fallback) ----------
         if (!publicKey) { showToast('Payment key not configured.', 'error'); btn.disabled = false; btn.textContent = 'Pay Now'; return; }
 
         const afterSuccess = (ref) => verify(ref || reference);
