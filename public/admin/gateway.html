@@ -7,6 +7,11 @@
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .diag-row { font-family: monospace; font-size: 11px; line-height: 1.6; padding: 8px 10px; border-radius: 8px; background: var(--bg-primary); border: 1px solid var(--border); margin-bottom: 6px; word-break: break-all; }
+    .diag-ok { border-color: var(--success); color: var(--success); }
+    .diag-fail { border-color: var(--error); color: var(--text-secondary); }
+  </style>
 </head>
 <body>
   <div class="admin-layout">
@@ -28,6 +33,17 @@
         <span class="badge cyan" id="vqBal">VQPay: …</span>
       </header>
 
+      <!-- CONNECTION PROBE -->
+      <div class="panel" style="border-color:var(--warning);">
+        <h3>🩺 VQPay Connection Diagnostics</h3>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
+          Probes the merchant-balance endpoint on every known VQPay host with your credentials.
+          <strong>REACHABLE</strong> = correct domain (set it as VQPAY_BASE_URL). <strong>WAF/IP-BLOCK</strong> = provider must whitelist/allow our server IPs. JSON error codes (213 sig / 302 merchant / 105-106 IP) tell us exactly what to fix.
+        </p>
+        <button class="btn btn-outline" style="padding:9px 18px; font-size:13px;" id="pingBtn">Run Probe</button>
+        <div id="pingBox" style="margin-top:12px;"></div>
+      </div>
+
       <div class="panel">
         <h3>Gateway Switches (live immediately)</h3>
         <label class="f-label">Deposits / Top-ups</label>
@@ -43,7 +59,7 @@
         <label class="f-label">VQPay Country Code</label>
         <input type="text" id="vqpay_country" class="f-input" maxlength="4" placeholder="NG" />
         <label class="f-label">VQPay Nigeria Deposit Method ID (from provider)</label>
-        <input type="text" id="vqpay_deposit_method" class="f-input" placeholder="e.g. method id given by VQPay" />
+        <input type="text" id="vqpay_deposit_method" class="f-input" placeholder="method id given by VQPay" />
         <label class="f-label">VQPay Deposit Flow</label>
         <select id="vqpay_deposit_flow" class="f-input">
           <option value="REDIRECT">REDIRECT (cashier link)</option>
@@ -54,7 +70,7 @@
 
       <div class="panel">
         <h3>VQPay → Nigerian Bank Code Map</h3>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Used to route auto-payouts. Longest keyword match wins. Unmapped banks fall back to manual payout with a clear error.</p>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">Longest keyword match wins. Unmapped banks fall back to manual payout with a clear error.</p>
         <div class="table-wrap" id="mapWrap"><div class="skeleton skeleton-text"></div></div>
       </div>
     </main>
@@ -69,6 +85,23 @@
       if (!profile) return;
       loadSettings(); loadBalance(); loadMap();
     })();
+
+    document.getElementById('pingBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('pingBtn');
+      const box = document.getElementById('pingBox');
+      btn.disabled = true; btn.textContent = 'Probing hosts…';
+      box.innerHTML = '';
+      try {
+        const r = await apiClient.request('vqpay.js', { action: 'ping' });
+        box.innerHTML = (r.data.report || []).map(row => `
+          <div class="diag-row ${row.verdict === 'REACHABLE' ? 'diag-ok' : 'diag-fail'}">
+            [${row.verdict}] ${row.base} → HTTP ${row.http}<br/>${escapeHtml(row.snippet)}
+          </div>`).join('');
+      } catch (err) {
+        box.innerHTML = `<div class="diag-row diag-fail">${escapeHtml(err.message || String(err))}</div>`;
+      }
+      btn.disabled = false; btn.textContent = 'Run Probe';
+    });
 
     async function loadSettings() {
       try {
