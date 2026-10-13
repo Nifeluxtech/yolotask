@@ -10,11 +10,35 @@
     .ref-hero { background: linear-gradient(135deg, var(--accent), #4338ca); border-radius: var(--radius-lg); padding: 26px; color: #fff; margin-bottom: 16px; text-align: center; }
     .ref-code { background: rgba(255,255,255,0.15); border: 1px dashed rgba(255,255,255,0.6); border-radius: 12px; padding: 12px; font-size: 20px; font-weight: 800; letter-spacing: 2px; margin: 14px 0; }
     .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .stat-grid.three { grid-template-columns: 1fr 1fr 1fr; }
     .stat-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; text-align: center; }
     .stat-val { font-size: 22px; font-weight: 800; color: var(--accent); }
     .stat-lbl { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
-    .ref-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+
+    /* Milestone banner */
+    .milestone-banner { background: linear-gradient(135deg, #10b981, #059669); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 16px; color: #fff; display: flex; align-items: center; gap: 14px; }
+    .milestone-banner .icon { font-size: 28px; flex-shrink: 0; }
+    .milestone-banner .content { flex: 1; }
+    .milestone-banner .title { font-weight: 800; font-size: 14px; margin-bottom: 2px; }
+    .milestone-banner .sub { font-size: 12px; opacity: .9; }
+
+    /* Referral rows with progress */
+    .ref-row { padding: 14px 0; border-bottom: 1px solid var(--border); }
     .ref-row:last-child { border-bottom: none; }
+    .ref-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .ref-name { font-weight: 600; font-size: 14px; }
+    .ref-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+    .ref-status { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+    .ref-status.active { background: var(--success-bg); color: var(--success); }
+    .ref-status.paid { background: #10b981; color: #fff; }
+
+    /* Progress bar */
+    .progress-wrap { margin-top: 8px; }
+    .progress-info { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+    .progress-info strong { color: var(--text-primary); }
+    .progress-bar { height: 6px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #4338ca); border-radius: 10px; transition: width .4s ease; }
+    .progress-fill.complete { background: linear-gradient(90deg, #10b981, #059669); }
   </style>
 </head>
 <body>
@@ -39,25 +63,39 @@
         const res = await apiClient.request('referrals.js', { action: 'get_referral_data' });
         const d = res.data;
         const link = `${location.origin}/register.html?ref=${d.referral_code}`;
+        const target = d.milestone_target || 10;
+        const bonus = d.milestone_bonus || 150;
 
         document.getElementById('refContent').innerHTML = `
           <div class="ref-hero">
             <div style="font-size:14px; opacity:.9;">Your Referral Code</div>
             <div class="ref-code" id="codeBox">${escapeHtml(d.referral_code)}</div>
             <div style="display:flex; gap:10px; justify-content:center;">
-              <button class="btn" id="copyBtn" style="background:#fff; color:#0A1628; padding:10px 18px; font-size:13px; font-weight:700; border:none; border-radius:10px; cursor:pointer;"> Copy Link</button>
+              <button class="btn" id="copyBtn" style="background:#fff; color:#0A1628; padding:10px 18px; font-size:13px; font-weight:700; border:none; border-radius:10px; cursor:pointer;">Copy Link</button>
               <a class="btn" id="shareBtn" style="background:rgba(255,255,255,.2); color:#fff; padding:10px 18px; font-size:13px; font-weight:700; border:1px solid rgba(255,255,255,.5); border-radius:10px; text-decoration:none;" target="_blank">💬 Share</a>
             </div>
           </div>
 
-          <div class="stat-grid">
+          <div class="milestone-banner">
+            <div class="icon">🎯</div>
+            <div class="content">
+              <div class="title">₦${bonus} Milestone Bonus</div>
+              <div class="sub">Earn ₦${bonus} every time a referral completes ${target} tasks</div>
+            </div>
+          </div>
+
+          <div class="stat-grid three">
             <div class="stat-card">
               <div class="stat-val">${d.total_referrals}</div>
-              <div class="stat-lbl">Total Referrals</div>
+              <div class="stat-lbl">Referrals</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:#10b981;">${d.milestones_unlocked || 0}</div>
+              <div class="stat-lbl">Milestones Hit</div>
             </div>
             <div class="stat-card">
               <div class="stat-val" style="color:var(--success);">${formatCurrency(d.total_earned)}</div>
-              <div class="stat-lbl">Referral Earnings</div>
+              <div class="stat-lbl">Total Earned</div>
             </div>
           </div>
 
@@ -66,7 +104,8 @@
             <p style="font-size:13px; color:var(--text-secondary); line-height:1.7;">
               1. Share your link with friends.<br/>
               2. They register and start earning.<br/>
-              3. You earn a bonus for every active referral — paid straight to your wallet.
+              3. You earn bonuses for every active referral — paid to your wallet.<br/>
+              4. <strong>When a referral completes ${target} tasks, you unlock ₦${bonus} extra!</strong>
             </p>
           </div>
 
@@ -74,15 +113,35 @@
             <h3 style="font-size:15px; margin-bottom:10px;">My Referrals (${d.total_referrals})</h3>
             ${d.referred_users.length === 0
               ? '<p style="font-size:13px; color:var(--text-secondary);">No referrals yet. Share your link to start earning!</p>'
-              : d.referred_users.map(u => `
-                  <div class="ref-row">
-                    <div>
-                      <div style="font-weight:600;">${escapeHtml(u.name)}</div>
-                      <div style="font-size:11px; color:var(--text-secondary);">Joined ${formatDate(u.joined_at)} • ${u.role}</div>
+              : d.referred_users.map(u => {
+                  const isPaid = u.bonus_paid;
+                  const pct = u.progress_pct || 0;
+                  const tasksLeft = u.tasks_remaining || 0;
+                  const statusCls = isPaid ? 'paid' : 'active';
+                  const statusTxt = isPaid ? '✓ PAID ₦' + bonus : 'ACTIVE';
+                  const fillCls = isPaid ? 'complete' : '';
+
+                  return `
+                    <div class="ref-row">
+                      <div class="ref-top">
+                        <div>
+                          <div class="ref-name">${escapeHtml(u.name)}</div>
+                          <div class="ref-sub">Joined ${formatDate(u.joined_at)} • ${u.role}</div>
+                        </div>
+                        <span class="ref-status ${statusCls}">${statusTxt}</span>
+                      </div>
+                      <div class="progress-wrap">
+                        <div class="progress-info">
+                          <span><strong>${u.approved_tasks}/${target}</strong> tasks completed</span>
+                          <span>${isPaid ? 'Bonus unlocked! 🎉' : tasksLeft + ' more to unlock ₦' + bonus}</span>
+                        </div>
+                        <div class="progress-bar">
+                          <div class="progress-fill ${fillCls}" style="width:${pct}%"></div>
+                        </div>
+                      </div>
                     </div>
-                    <span style="color:var(--success); font-size:12px; font-weight:700;">ACTIVE</span>
-                  </div>
-                `).join('')}
+                  `;
+                }).join('')}
           </div>
         `;
 
