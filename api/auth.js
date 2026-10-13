@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
           supabaseAdmin.from('campaigns').select('id', { count: 'exact', head: true }).eq('status', 'LIVE'),
           supabaseAdmin.from('wallet_ledger').select('amount')
             .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER']).limit(10000),
-          supabaseAdmin.from('interests').select('id, name').order('name').limit(24)
+          q(() => supabaseAdmin.from('interests').select('id, name, is_active').order('name').limit(100))
         ]);
         if (interests.error) {
           console.error('Public interests query failed:', interests.error);
