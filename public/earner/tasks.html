@@ -80,6 +80,9 @@
     <h3>Task Type</h3>
     <div id="typeFilters"><div style="font-size:13px; color:var(--text-secondary);">Loading...</div></div>
 
+    <h3>Task Tier</h3>
+    <div id="tierFilters"></div>
+
     <button class="btn btn-primary w-full" style="margin-top:22px;" onclick="applyFilters()">Apply Filters</button>
     <button class="btn btn-outline w-full" style="margin-top:10px;" onclick="resetFilters()">Reset</button>
   </aside>
@@ -94,6 +97,7 @@
     let query = '';
     let fPlatform = 'all';
     let fType = 'all';
+    let fTier = 'all';
 
     (async () => {
       const profile = await checkAuthAndRedirect('earner');
@@ -121,6 +125,11 @@
         `<label class="radio-row"><input type="radio" name="fType" value="all" ${fType === 'all' ? 'checked' : ''} /> <span>All</span></label>` +
         taskTypes.map(t => `
           <label class="radio-row"><input type="radio" name="fType" value="${escapeHtml(t.name)}" ${fType === t.name ? 'checked' : ''} /> <span>${escapeHtml(t.name)}</span></label>`).join('');
+
+      document.getElementById('tierFilters').innerHTML =
+        `<label class="radio-row"><input type="radio" name="fTier" value="all" ${fTier === 'all' ? 'checked' : ''} /> <span>All tasks</span></label>
+         <label class="radio-row"><input type="radio" name="fTier" value="premium" ${fTier === 'premium' ? 'checked' : ''} /> <span>★ Premium (interest-based)</span></label>
+         <label class="radio-row"><input type="radio" name="fTier" value="general" ${fTier === 'general' ? 'checked' : ''} /> <span>General</span></label>`;
     }
 
     window.openDrawer = () => { document.getElementById('drawer').classList.add('open'); document.getElementById('drawerOverlay').classList.add('open'); };
@@ -131,16 +140,18 @@
     window.applyFilters = () => {
       const p = document.querySelector('input[name="fPlat"]:checked');
       const t = document.querySelector('input[name="fType"]:checked');
+      const tier = document.querySelector('input[name="fTier"]:checked');
       fPlatform = p ? p.value : 'all';
       fType = t ? t.value : 'all';
-      const active = fPlatform !== 'all' || fType !== 'all';
+      fTier = tier ? tier.value : 'all';
+      const active = fPlatform !== 'all' || fType !== 'all' || fTier !== 'all';
       document.getElementById('filterBtn').classList.toggle('active', active);
       closeDrawer();
       render();
     };
 
     window.resetFilters = () => {
-      fPlatform = 'all'; fType = 'all'; query = '';
+      fPlatform = 'all'; fType = 'all'; fTier = 'all'; query = '';
       document.getElementById('searchBox').value = '';
       document.getElementById('filterBtn').classList.remove('active');
       buildFilterUI();
@@ -154,6 +165,8 @@
       let list = allTasks;
       if (fPlatform !== 'all') list = list.filter(t => t.platform_name === fPlatform);
       if (fType !== 'all') list = list.filter(t => t.task_type === fType);
+      if (fTier === 'premium') list = list.filter(t => t.is_premium === true);
+      if (fTier === 'general') list = list.filter(t => t.is_premium !== true);
       if (query) list = list.filter(t => (t.title + ' ' + t.task_type + ' ' + t.platform_name).toLowerCase().includes(query));
 
       const feed = document.getElementById('taskFeed');
@@ -171,8 +184,8 @@
           <div class="tc-top">
             <img class="tc-logo" src="${t.platform_logo || '/icons/icon.svg'}" onerror="this.onerror=null; this.outerHTML='<div class=&quot;tc-logo&quot; style=&quot;display:flex;align-items:center;justify-content:center;font-weight:900;color:var(--accent)&quot;>${initial}</div>'" alt="" />
             <div style="flex:1; min-width:0;">
-              <div class="tc-meta">${escapeHtml(t.platform_name)} • Task</div>
-              <div class="tc-title">${escapeHtml(t.task_type)}</div>
+              <div class="tc-meta">${escapeHtml(t.platform_name)} • ${t.is_premium ? 'Premium task' : 'General task'}</div>
+              <div class="tc-title">${escapeHtml(t.task_type || t.task_type_name || 'Task')}</div>
               <div class="tc-sub">${escapeHtml(t.title)}</div>
               <div class="tc-chips">
                 <span class="tc-chip">👥 ${t.slots_left} slots left</span>
