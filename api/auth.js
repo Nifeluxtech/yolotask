@@ -19,6 +19,25 @@ async function q(fn) {
   return second;
 }
 
+// Like q(), but also retries when Supabase returns an EMPTY list with no error
+// (what happens with a wrong key / RLS / transient glitches). Logs why.
+async function qList(label, fn, attempts = 3) {
+  let last = null;
+  for (let i = 0; i < attempts; i++) {
+    const r = await fn();
+    last = r;
+    if (r.error) {
+      console.error(`[${label}] attempt ${i + 1} error:`, r.error);
+    } else if (Array.isArray(r.data) && r.data.length > 0) {
+      return r;
+    } else {
+      console.error(`[${label}] attempt ${i + 1} returned 0 rows (no error). Check SUPABASE_URL / SERVICE_ROLE_KEY / RLS / table data.`);
+    }
+    if (i < attempts - 1) await new Promise(res => setTimeout(res, 400 * (i + 1)));
+  }
+  return last;
+}
+
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return sendError(res, 'METHOD_NOT_ALLOWED', 'Only POST allowed.', 405);
@@ -50,16 +69,21 @@ module.exports = async (req, res) => {
           supabaseAdmin.from('campaigns').select('id', { count: 'exact', head: true }).eq('status', 'LIVE'),
           supabaseAdmin.from('wallet_ledger').select('amount')
             .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER']).limit(10000),
-          q(() => supabaseAdmin.from('interests').select('id, name, category, is_active').order('name').limit(100))
+          qList('public.interests', () => supabaseAdmin.from('interests').select('id, name, category, is_active').order('name').limit(100))
         ]);
         if (interests.error) {
           console.error('Public interests query failed:', interests.error);
           return sendError(res, 'INTERESTS_LOAD_FAILED', 'Interests are temporarily unavailable. Please try again.', 503);
         }
+        const activeInterests = (interests.data || []).filter(isActive);
+        if (activeInterests.length === 0) {
+          console.error(`[public.interests] raw rows: ${(interests.data || []).length}, active rows: 0`);
+          return sendError(res, 'INTERESTS_EMPTY', 'Interests are temporarily unavailable. Please refresh in a moment.', 503);
+        }
         const totalPaid = (paid.data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
         return sendSuccess(res, {
           stats: { earners: earners.count || 0, advertisers: advertisers.count || 0, live_campaigns: live.count || 0, total_paid: totalPaid },
-          interests: (interests.data || []).filter(isActive)
+          interests: activeInterests
         });
       }
 
@@ -189,8 +213,8 @@ module.exports = async (req, res) => {
       case 'get_settings_data': {
         const { profile } = await getAuthenticatedUser(req);
         const [interestsRes, taskTypesRes, myInterestsRes, hiddenRes] = await Promise.all([
-          q(() => supabaseAdmin.from('interests').select('*')),
-          q(() => supabaseAdmin.from('task_types').select('*')),
+          qList('settings.interests', () => supabaseAdmin.from('interests').select('*')),
+          qList('settings.task_types', () => supabaseAdmin.from('task_types').select('*')),
           q(() => supabaseAdmin.from('user_interests').select('interest_id').eq('user_id', profile.id)),
           q(() => supabaseAdmin.from('profiles').select('hidden_task_types').eq('id', profile.id).maybeSingle())
         ]);
@@ -204,8 +228,14 @@ module.exports = async (req, res) => {
         const task_types = (taskTypesRes.data || []).filter(isActive)
           .map(t => ({ id: t.id, name: t.name }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        if (interests.length === 0 || task_types.length === 0) {
+          const rawI = (interestsRes.data || []).length, rawT = (taskTypesRes.data || []).length;
+          console.error(`[settings] empty catalog. interests raw=${rawI} active=${interests.length}; task_types raw=${rawT} active=${task_types.length}`);
+          return sendError(res, 'SETTINGS_EMPTY',
+            `Catalog empty (interests ${rawI}/${interests.length} active, task types ${rawT}/${task_types.length} active). Check server logs.`, 503);
+        }
         return sendSuccess(res, {
-          version: 'auth-v8',
+          version: 'auth-v9',
           interests, task_types,
           my_interest_ids: (myInterestsRes.data || []).map(i => i.interest_id),
           my_hidden_task_ids: (hiddenRes && hiddenRes.data && hiddenRes.data.hidden_task_types) || []
