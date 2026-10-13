@@ -178,8 +178,22 @@
     box.innerHTML = '<div class="settings-card">Loading preferences...</div>';
 
     try {
-      const res = await apiClient.request('auth.js', { action: 'get_settings_data' });
-      const d = res.data || {};
+      let d = {};
+      let lastError = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await apiClient.request('auth.js', { action: 'get_settings_data' });
+          d = res.data || {};
+          const hasCatalog = Array.isArray(d.interests) && d.interests.length > 0
+            || Array.isArray(d.task_types) && d.task_types.length > 0;
+          if (hasCatalog || attempt === 2) break;
+          lastError = new Error('The server returned an empty task catalog.');
+        } catch (err) {
+          lastError = err;
+          if (attempt === 2) throw err;
+        }
+        await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
+      }
       const interests = Array.isArray(d.interests) ? d.interests : [];
       const task_types = Array.isArray(d.task_types) ? d.task_types : [];
       const my_interest_ids = Array.isArray(d.my_interest_ids) ? d.my_interest_ids : [];
@@ -190,7 +204,7 @@
           <div class="settings-card" style="border-color: var(--error);">
             <h3 style="color:var(--error); margin-bottom:10px;">No platform data (0 interests, 0 task types)</h3>
             <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">Screenshot this box and send it:</p>
-            <div class="diag-box">${escapeHtml(JSON.stringify(d).slice(0, 500))}</div>
+            <div class="diag-box">${escapeHtml(JSON.stringify(d).slice(0, 500))}${lastError ? `<br><br>${escapeHtml(lastError.message)}` : ''}</div>
           </div>`;
         return;
       }
