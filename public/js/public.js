@@ -164,10 +164,10 @@ window.__initFlipAuth = function (initialFace, refCode) {
       const list = res.data.interests || [];
       document.getElementById('rgInterests').innerHTML = list.length
         ? list.map(i => `<label class="chip2"><input type="checkbox" name="rgInt" value="${i.id}" /> ${escapeHtml(i.name)}</label>`).join('')
-        : '<div style="font-size:12px; color:var(--text-secondary);">No interests configured yet.</div>';
+        : '<div style="font-size:12px; color:var(--error);">No active interests are configured. Please contact the administrator.</div>';
     })
-    .catch(() => {
-      document.getElementById('rgInterests').innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">Could not load interests.</div>';
+    .catch(err => {
+      document.getElementById('rgInterests').innerHTML = `<div style="font-size:12px; color:var(--error);">${escapeHtml(err.message || 'Could not load interests. Please refresh and try again.')}</div>`;
     });
 
   async function doLogin() {
