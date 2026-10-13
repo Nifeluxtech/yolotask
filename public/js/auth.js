@@ -28,8 +28,16 @@ async function checkAuthAndRedirect(requiredRole = null) {
 
     return profile;
   } catch (err) {
-    localStorage.clear();
-    window.location.href = '/login.html';
+    // Only remove the session when the server explicitly rejected it.
+    // A transient network/5xx error must not log the user out.
+    if (err && (err.status === 401 || (err.status === 403 && ['UNAUTHORIZED', 'FORBIDDEN'].includes(err.code)))) {
+      localStorage.removeItem('yolotask_token');
+      localStorage.removeItem('yolotask_refresh');
+      localStorage.removeItem('yolotask_user');
+      window.location.href = '/login.html';
+      return null;
+    }
+    console.error('Session check failed without invalidating the session:', err);
     return null;
   }
 }
