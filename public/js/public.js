@@ -159,16 +159,26 @@ window.__initFlipAuth = function (initialFace, refCode) {
     document.getElementById('rgInterestsBlock').style.display = 'none';
   });
 
-  apiClient.request('auth.js', { action: 'get_public_data' })
-    .then(res => {
-      const list = res.data.interests || [];
-      document.getElementById('rgInterests').innerHTML = list.length
-        ? list.map(i => `<label class="chip2"><input type="checkbox" name="rgInt" value="${i.id}" /> ${escapeHtml(i.name)}</label>`).join('')
-        : '<div style="font-size:12px; color:var(--error);">No active interests are configured. Please contact the administrator.</div>';
-    })
-    .catch(err => {
-      document.getElementById('rgInterests').innerHTML = `<div style="font-size:12px; color:var(--error);">${escapeHtml(err.message || 'Could not load interests. Please refresh and try again.')}</div>`;
-    });
+  async function loadRegistrationInterests() {
+    const target = document.getElementById('rgInterests');
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await apiClient.request('auth.js', { action: 'get_public_data' });
+        const list = res.data.interests || [];
+        if (list.length > 0) {
+          target.innerHTML = list.map(i => `<label class="chip2"><input type="checkbox" name="rgInt" value="${i.id}" /> ${escapeHtml(i.name)}</label>`).join('');
+          return;
+        }
+        lastError = new Error('No active interests were returned by the server.');
+      } catch (err) {
+        lastError = err;
+      }
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
+    }
+    target.innerHTML = `<div style="font-size:12px; color:var(--error);">${escapeHtml(lastError?.message || 'Could not load interests. Please refresh and try again.')}</div>`;
+  }
+  loadRegistrationInterests();
 
   async function doLogin() {
     const btn = document.getElementById('liBtn');
