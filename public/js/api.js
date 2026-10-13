@@ -1,5 +1,6 @@
 // /public/js/api.js
 const API_BASE = '/api';
+let refreshPromise = null;
 
 const apiClient = {
   async request(endpoint, payload = {}, _isRetry = false) {
@@ -25,19 +26,24 @@ const apiClient = {
     if (response.status === 401 && !_isRetry) {
       const refresh = localStorage.getItem('yolotask_refresh');
       if (refresh) {
-        try {
-          const rr = await fetch(`${API_BASE}/auth.js`, {
+        if (!refreshPromise) {
+          refreshPromise = fetch(`${API_BASE}/auth.js`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'refresh_session', refresh_token: refresh })
-          });
-          const rj = await rr.json();
-          if (rj && rj.success && rj.data && rj.data.session) {
+          }).then(rr => rr.json()).then(rj => {
+            if (!rj || !rj.success || !rj.data || !rj.data.session || !rj.data.session.access_token) {
+              throw new Error('Refresh failed');
+            }
             localStorage.setItem('yolotask_token', rj.data.session.access_token);
-            localStorage.setItem('yolotask_refresh', rj.data.session.refresh_token);
-            return this.request(endpoint, payload, true); // retry once with fresh token
-          }
-        } catch (e) { /* fall through to logout */ }
+            if (rj.data.session.refresh_token) localStorage.setItem('yolotask_refresh', rj.data.session.refresh_token);
+            return true;
+          }).finally(() => { refreshPromise = null; });
+        }
+        try {
+          await refreshPromise;
+          return this.request(endpoint, payload, true); // retry once with fresh token
+        } catch (e) { /* refresh token is no longer valid; clear below */ }
       }
       localStorage.removeItem('yolotask_token');
       localStorage.removeItem('yolotask_refresh');
@@ -60,19 +66,26 @@ const apiClient = {
 
     // ---- HTTP errors ----
     if (!response.ok) {
-      if (response.status === 403) {
+      const errorCode = data && data.error && data.error.code;
+      if (response.status === 403 && ['UNAUTHORIZED', 'FORBIDDEN'].includes(errorCode)) {
         localStorage.removeItem('yolotask_token');
         localStorage.removeItem('yolotask_refresh');
         localStorage.removeItem('yolotask_user');
         const p = window.location.pathname;
         if (!p.includes('login.html') && !p.includes('register.html')) window.location.href = '/login.html';
       }
-      throw new Error((data && data.error && data.error.message) || 'Request failed.');
+      const error = new Error((data && data.error && data.error.message) || 'Request failed.');
+      error.status = response.status;
+      error.code = errorCode || 'HTTP_ERROR';
+      throw error;
     }
 
     // ---- Logical errors ----
     if (data.success === false) {
-      throw new Error((data.error && data.error.message) || 'An error occurred.');
+      const error = new Error((data.error && data.error.message) || 'An error occurred.');
+      error.status = response.status;
+      error.code = data.error && data.error.code;
+      throw error;
     }
 
     return data;
