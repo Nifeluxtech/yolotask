@@ -3,9 +3,12 @@ const { supabaseAdmin } = require('../lib/supabase');
 const { getAuthenticatedUser, requireRole, getPlatformFlag } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 
-const isActive = (r) =>
-  r.is_active === undefined || r.is_active === null ||
-  r.is_active === true || r.is_active === 'true' || r.is_active === 't';
+function isActive(r) {
+  const value = r && r.is_active;
+  if (value === undefined || value === null || value === '') return true;
+  if (value === true || value === 1) return true;
+  return ['true', 't', '1', 'yes', 'active'].includes(String(value).trim().toLowerCase());
+}
 
 async function q(fn) {
   const first = await fn();
@@ -47,7 +50,7 @@ module.exports = async (req, res) => {
           supabaseAdmin.from('campaigns').select('id', { count: 'exact', head: true }).eq('status', 'LIVE'),
           supabaseAdmin.from('wallet_ledger').select('amount')
             .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER']).limit(10000),
-          q(() => supabaseAdmin.from('interests').select('id, name, is_active').order('name').limit(100))
+          q(() => supabaseAdmin.from('interests').select('id, name, category, is_active').order('name').limit(100))
         ]);
         if (interests.error) {
           console.error('Public interests query failed:', interests.error);
