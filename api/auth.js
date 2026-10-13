@@ -49,6 +49,10 @@ module.exports = async (req, res) => {
             .in('transaction_type', ['TASK_REWARD', 'ADMIN_BONUS', 'REFERRAL_REWARD_EARNER']).limit(10000),
           supabaseAdmin.from('interests').select('id, name').order('name').limit(24)
         ]);
+        if (interests.error) {
+          console.error('Public interests query failed:', interests.error);
+          return sendError(res, 'INTERESTS_LOAD_FAILED', 'Interests are temporarily unavailable. Please try again.', 503);
+        }
         const totalPaid = (paid.data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
         return sendSuccess(res, {
           stats: { earners: earners.count || 0, advertisers: advertisers.count || 0, live_campaigns: live.count || 0, total_paid: totalPaid },
