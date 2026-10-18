@@ -287,10 +287,21 @@ module.exports = async (req, res) => {
 
       // ---------- USERS ----------
       case 'get_users': {
-        const { data } = await supabaseAdmin.from('profiles')
-          .select('id, full_name, role, is_suspended, created_at')
-          .order('created_at', { ascending: false }).limit(100);
-        return sendSuccess(res, { users: data || [] });
+        // Supabase may cap a single response, so page through the table instead
+        // of silently stopping at the first 100 users.
+        const pageSize = 1000;
+        const users = [];
+        for (let page = 0; page < 100; page++) {
+          const from = page * pageSize;
+          const { data, error } = await supabaseAdmin.from('profiles')
+            .select('id, full_name, role, is_suspended, created_at')
+            .order('created_at', { ascending: false })
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          users.push(...(data || []));
+          if (!data || data.length < pageSize) break;
+        }
+        return sendSuccess(res, { users, total: users.length });
       }
 
       case 'update_user_status': {
