@@ -49,7 +49,7 @@
       try {
         const res = await apiClient.request('admin.js', { action: 'get_users' });
         const users = res.data.users || [];
-        document.getElementById('countBadge').textContent = users.length + ' users';
+        document.getElementById('countBadge').textContent = (res.data.total ?? users.length) + ' users';
 
         document.getElementById('tableWrap').innerHTML = `
           <table class="admin-table">
