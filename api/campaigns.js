@@ -123,6 +123,27 @@ module.exports = async (req, res) => {
         if (req.body.title !== undefined) patch.title = String(req.body.title).trim().slice(0, 200);
         if (req.body.instructions !== undefined) patch.instructions = String(req.body.instructions).trim().slice(0, 5000);
         if (req.body.destination_link !== undefined) patch.destination_link = String(req.body.destination_link).trim().slice(0, 1000);
+        if (req.body.target_quantity !== undefined) {
+          const quantity = Number(req.body.target_quantity);
+          if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
+            return sendError(res, 'INVALID_QUANTITY', 'Number of workers must be between 1 and 100,000.', 400);
+          }
+          const { data: campaign, error: campaignError } = await supabaseAdmin.from('campaigns')
+            .select('status, completed_quantity, is_targeted, task_type_id')
+            .eq('id', id).eq('advertiser_id', profile.id).single();
+          if (campaignError || !campaign) return sendError(res, 'NOT_FOUND', 'Campaign not found.', 404);
+          if (campaign.status !== 'DRAFT') {
+            return sendError(res, 'INVALID_STATE', 'Worker quantity can only be changed while the campaign is a draft.', 400);
+          }
+          const { data: taskType, error: typeError } = await supabaseAdmin.from('task_types')
+            .select('base_advertiser_cost, premium_advertiser_cost').eq('id', campaign.task_type_id).single();
+          if (typeError || !taskType) return sendError(res, 'INVALID_TASK_TYPE', 'Campaign task type not found.', 400);
+          const costPerWorker = Number(campaign.is_targeted ? taskType.premium_advertiser_cost : taskType.base_advertiser_cost);
+          const totalBudget = costPerWorker * quantity;
+          patch.target_quantity = quantity;
+          patch.total_budget = totalBudget;
+          patch.remaining_budget = Math.max(0, totalBudget - (Number(campaign.completed_quantity) || 0) * costPerWorker);
+        }
         const { error } = await supabaseAdmin.from('campaigns').update(patch).eq('id', id).eq('advertiser_id', profile.id).in('status', ['DRAFT', 'LIVE', 'PAUSED']);
         if (error) throw error;
         return sendSuccess(res, {}, 'Campaign updated.');
