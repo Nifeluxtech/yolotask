@@ -28,6 +28,9 @@
       <textarea id="editInstructions" class="f-input" style="min-height:100px;"></textarea>
       <label class="f-label">Destination Link</label>
       <input type="url" id="editLink" class="f-input" />
+      <label class="f-label">Number of Workers</label>
+      <input type="number" id="editQuantity" class="f-input" min="1" max="100000" />
+      <div id="editQuantityHint" style="font-size:12px; color:var(--text-secondary); margin-top:-8px; margin-bottom:14px;">Quantity can be changed while the campaign is a draft.</div>
       <div style="display:flex; gap:10px; justify-content:flex-end;">
         <button class="btn btn-outline" style="padding:9px 16px; font-size:13px;" onclick="closeModal()">Cancel</button>
         <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="saveEditBtn">Save Changes</button>
@@ -58,9 +61,9 @@
 
         box.innerHTML = camps.map(c => {
           let actions = '';
-          if (c.status === 'DRAFT') actions = `<button class="btn btn-primary" style="padding:7px 14px; font-size:12px;" onclick="submitCamp('${c.id}')">Submit for Review</button>`;
+          if (c.status === 'DRAFT') actions = `<button class="btn btn-outline" style="padding:7px 12px; font-size:12px;" onclick="openEdit('${c.id}', '${escapeHtml(c.title).replace(/'/g, "\\'")}', '${escapeHtml(c.instructions || '').replace(/'/g, "\\'")}', '${escapeHtml(c.destination_link || '')}', ${Number(c.target_quantity) || 1}, true)">Edit</button><button class="btn btn-primary" style="padding:7px 14px; font-size:12px;" onclick="submitCamp('${c.id}')">Submit for Review</button>`;
           else if (c.status === 'LIVE') actions = `
-            <button class="btn btn-outline" style="padding:7px 12px; font-size:12px;" onclick="openEdit('${c.id}', '${escapeHtml(c.title).replace(/'/g, "\\'")}', '${escapeHtml(c.instructions || '').replace(/'/g, "\\'")}', '${escapeHtml(c.destination_link || '')}')">Edit</button>
+            <button class="btn btn-outline" style="padding:7px 12px; font-size:12px;" onclick="openEdit('${c.id}', '${escapeHtml(c.title).replace(/'/g, "\\'")}', '${escapeHtml(c.instructions || '').replace(/'/g, "\\'")}', '${escapeHtml(c.destination_link || '')}', ${Number(c.target_quantity) || 1}, false)">Edit</button>
             <button class="btn" style="padding:7px 12px; font-size:12px; background:var(--warning); color:#000;" onclick="changeStatus('${c.id}','PAUSED')">Pause</button>
             <button class="btn btn-danger" style="padding:7px 12px; font-size:12px;" onclick="changeStatus('${c.id}','CANCELLED')">Cancel</button>`;
           else if (c.status === 'PAUSED') actions = `
@@ -110,24 +113,31 @@
       } catch (e) { showToast(e.message, 'error'); }
     };
 
-    window.openEdit = function (id, title, instructions, link) {
+    window.openEdit = function (id, title, instructions, link, quantity, canEditQuantity) {
       document.getElementById('editId').value = id;
       document.getElementById('editTitle').value = title;
       document.getElementById('editInstructions').value = instructions;
       document.getElementById('editLink').value = link;
+      document.getElementById('editQuantity').value = quantity || 1;
+      document.getElementById('editQuantity').disabled = !canEditQuantity;
+      document.getElementById('editQuantityHint').textContent = canEditQuantity
+        ? 'Quantity can be changed while the campaign is a draft.'
+        : 'Worker quantity cannot be changed after the campaign becomes live.';
       document.getElementById('editModal').classList.add('active');
     };
     window.closeModal = function () { document.getElementById('editModal').classList.remove('active'); };
 
     document.getElementById('saveEditBtn').addEventListener('click', async () => {
       try {
-        await apiClient.request('campaigns.js', {
+        const payload = {
           action: 'update_campaign',
           campaignId: document.getElementById('editId').value,
           title: document.getElementById('editTitle').value,
           instructions: document.getElementById('editInstructions').value,
           destination_link: document.getElementById('editLink').value
-        });
+        };
+        if (!document.getElementById('editQuantity').disabled) payload.target_quantity = parseInt(document.getElementById('editQuantity').value, 10);
+        await apiClient.request('campaigns.js', payload);
         showToast('Campaign updated!', 'success');
         closeModal();
         setTimeout(() => load(), 800);
