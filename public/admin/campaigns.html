@@ -3,39 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Campaigns - YOLOTASK</title>
+  <title>Campaign Reviews - YOLOTASK Admin</title>
   <link rel="stylesheet" href="/css/global.css" />
   <link rel="stylesheet" href="/css/ui-components.css" />
   <link rel="stylesheet" href="/css/admin.css" />
+  <style>
+    .campaign-card { overflow: hidden; }
+    .campaign-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin: 16px 0; }
+    .meta-item { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+    .meta-label { display: block; color: var(--text-secondary); font-size: 10px; text-transform: uppercase; letter-spacing: .45px; margin-bottom: 4px; }
+    .meta-value { display: block; color: var(--text-primary); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+    .detail-block { margin-top: 14px; }
+    .detail-label { color: var(--text-secondary); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .45px; margin-bottom: 5px; }
+    .detail-text { color: var(--text-primary); font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .action-row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--border); }
+    .empty-state { text-align: center; color: var(--text-secondary); padding: 44px 20px; }
+    .error-state { color: var(--error); }
+  </style>
 </head>
 <body>
-  <header class="flex justify-between items-center" style="padding:15px 20px;">
-    <div class="yolo-brand" style="font-size:20px;">YOLOTASK <span style="font-size:10px; color:var(--text-secondary); font-weight:600;">ADVERTISER</span></div>
-    <a href="/advertiser/create-campaign.html" class="btn btn-primary" style="padding:8px 16px; font-size:13px;">+ New</a>
-  </header>
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <div class="brand yolo-brand">YOLOTASK <span style="font-size:10px; color:var(--error);">ADMIN</span></div>
+      <a href="/admin/dashboard.html">📊 Dashboard</a>
+      <a href="/admin/gateway.html">🔀 Gateways</a>
+      <a href="/admin/sms.html">📱 SMS Control</a>
+      <a href="/admin/catalog.html">🧩 Catalog</a>
+      <a href="/admin/leaders.html">🏆 Leader Console</a>
+      <a href="/admin/campaigns.html" class="active">📝 Campaigns</a>
+      <a href="/admin/escalated.html">⚠️ Escalated</a>
+      <a href="/admin/withdrawals.html">💸 Withdrawals</a>
+      <a href="/admin/users.html">👥 Users</a>
+      <a href="/admin/announcements.html">📢 Announcements</a>
+      <a href="/admin/settings.html">⚙️ Settings</a>
+      <a href="/login.html" onclick="localStorage.clear()" class="logout">🚪 Logout</a>
+    </aside>
 
-  <main class="container" style="padding:22px 20px 120px; max-width:860px;">
-    <div id="campaignList"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
-  </main>
+    <main class="admin-main">
+      <header class="admin-header">
+        <div>
+          <div class="page-title">Campaign Reviews</div>
+          <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Review submitted advertiser campaigns before they go live.</div>
+        </div>
+        <span class="badge cyan" id="countBadge">0</span>
+      </header>
 
-  <div class="modal-overlay" id="editModal">
-    <div class="modal-box">
-      <h3 style="margin-bottom:14px;">Edit Campaign</h3>
-      <input type="hidden" id="editId" />
-      <label class="f-label">Title</label>
-      <input type="text" id="editTitle" class="f-input" />
-      <label class="f-label">Instructions</label>
-      <textarea id="editInstructions" class="f-input" style="min-height:100px;"></textarea>
-      <label class="f-label">Destination Link</label>
-      <input type="url" id="editLink" class="f-input" />
-      <label class="f-label">Number of Workers</label>
-      <input type="number" id="editQuantity" class="f-input" min="1" max="100000" />
-      <div id="editQuantityHint" style="font-size:12px; color:var(--text-secondary); margin-top:-8px; margin-bottom:14px;">Quantity can be changed while the campaign is a draft.</div>
-      <div style="display:flex; gap:10px; justify-content:flex-end;">
-        <button class="btn btn-outline" style="padding:9px 16px; font-size:13px;" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" style="padding:9px 16px; font-size:13px;" id="saveEditBtn">Save Changes</button>
+      <div id="campaignList">
+        <div class="panel"><div class="skeleton skeleton-card"></div></div>
       </div>
-    </div>
+    </main>
   </div>
 
   <script src="/js/api.js"></script>
@@ -43,106 +59,117 @@
   <script src="/js/ui.js"></script>
   <script>
     (async () => {
-      const profile = await checkAuthAndRedirect('advertiser');
+      const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
-      load();
+      await loadCampaigns();
     })();
 
-    async function load() {
-      try {
-        const res = await apiClient.request('campaigns.js', { action: 'get_list' });
-        const camps = res.data.campaigns || [];
-        const box = document.getElementById('campaignList');
+    function displayValue(value, fallback = '—') {
+      return value === null || value === undefined || value === '' ? fallback : String(value);
+    }
 
-        if (camps.length === 0) {
-          box.innerHTML = '<div class="panel" style="text-align:center; color:var(--text-secondary); padding:40px;">No campaigns yet. Create your first one!</div>';
+    function formatAmount(value) {
+      const amount = Number(value);
+      return Number.isFinite(amount) ? formatCurrency(amount) : '—';
+    }
+
+    function renderDetail(label, value) {
+      if (value === null || value === undefined || String(value).trim() === '') return '';
+      return `<div class="detail-block"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-text">${escapeHtml(value)}</div></div>`;
+    }
+
+    function renderCampaign(campaign) {
+      const advertiser = campaign.advertiser?.full_name || campaign.advertiser?.business_name || 'Unknown advertiser';
+      const taskType = campaign.task_types?.name || 'Unknown task type';
+      const targetQuantity = campaign.target_quantity ?? campaign.worker_count;
+      const submittedAt = campaign.created_at ? formatDate(campaign.created_at) : '—';
+      const targeted = campaign.is_targeted ? 'Targeted' : 'Standard';
+
+      return `
+        <article class="panel campaign-card" id="campaign-${escapeHtml(campaign.id)}">
+          <div class="row-item" style="border:none; padding:0; align-items:flex-start;">
+            <div style="flex:1; min-width:220px;">
+              <div style="font-weight:800; font-size:16px;">${escapeHtml(displayValue(campaign.title, 'Untitled campaign'))}</div>
+              <div class="row-sub">Advertiser: ${escapeHtml(advertiser)} • Submitted ${escapeHtml(submittedAt)}</div>
+            </div>
+            <span class="badge amber">SUBMITTED</span>
+          </div>
+
+          <div class="campaign-meta">
+            <div class="meta-item"><span class="meta-label">Task type</span><span class="meta-value">${escapeHtml(taskType)}</span></div>
+            <div class="meta-item"><span class="meta-label">Budget</span><span class="meta-value">${escapeHtml(formatAmount(campaign.total_budget))}</span></div>
+            <div class="meta-item"><span class="meta-label">Workers</span><span class="meta-value">${escapeHtml(displayValue(targetQuantity))}</span></div>
+            <div class="meta-item"><span class="meta-label">Targeting</span><span class="meta-value">${escapeHtml(targeted)}</span></div>
+            <div class="meta-item"><span class="meta-label">Start date</span><span class="meta-value">${escapeHtml(campaign.start_date ? formatDate(campaign.start_date) : 'Immediate')}</span></div>
+            <div class="meta-item"><span class="meta-label">End date</span><span class="meta-value">${escapeHtml(campaign.end_date ? formatDate(campaign.end_date) : 'No end date')}</span></div>
+          </div>
+
+          ${renderDetail('Description', campaign.description)}
+          ${renderDetail('Instructions', campaign.instructions)}
+          ${renderDetail('Proof requirements', campaign.proof_requirements)}
+          ${campaign.destination_link ? `<div class="detail-block"><div class="detail-label">Destination link</div><a class="detail-text" href="${escapeHtml(campaign.destination_link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(campaign.destination_link)}</a></div>` : ''}
+
+          <div class="action-row">
+            <button class="btn btn-danger" style="padding:9px 16px; font-size:12px;" onclick="reviewCampaign('${escapeHtml(campaign.id)}', 'REJECTED')">Reject</button>
+            <button class="btn btn-success" style="padding:9px 16px; font-size:12px;" onclick="reviewCampaign('${escapeHtml(campaign.id)}', 'APPROVED')">Approve &amp; Publish</button>
+          </div>
+        </article>`;
+    }
+
+    async function loadCampaigns() {
+      const box = document.getElementById('campaignList');
+      try {
+        const response = await apiClient.request('admin.js', { action: 'get_campaigns_for_review' });
+        const campaigns = response.data?.campaigns || [];
+        document.getElementById('countBadge').textContent = campaigns.length;
+
+        if (campaigns.length === 0) {
+          box.innerHTML = '<div class="panel empty-state">No campaigns are waiting for review.</div>';
           return;
         }
 
-        box.innerHTML = camps.map(c => {
-          let actions = '';
-          if (c.status === 'DRAFT') actions = `<button class="btn btn-outline" style="padding:7px 12px; font-size:12px;" onclick="openEdit('${c.id}', '${escapeHtml(c.title).replace(/'/g, "\\'")}', '${escapeHtml(c.instructions || '').replace(/'/g, "\\'")}', '${escapeHtml(c.destination_link || '')}', ${Number(c.target_quantity) || 1}, true)">Edit</button><button class="btn btn-primary" style="padding:7px 14px; font-size:12px;" onclick="submitCamp('${c.id}')">Submit for Review</button>`;
-          else if (c.status === 'LIVE') actions = `
-            <button class="btn btn-outline" style="padding:7px 12px; font-size:12px;" onclick="openEdit('${c.id}', '${escapeHtml(c.title).replace(/'/g, "\\'")}', '${escapeHtml(c.instructions || '').replace(/'/g, "\\'")}', '${escapeHtml(c.destination_link || '')}', ${Number(c.target_quantity) || 1}, false)">Edit</button>
-            <button class="btn" style="padding:7px 12px; font-size:12px; background:var(--warning); color:#000;" onclick="changeStatus('${c.id}','PAUSED')">Pause</button>
-            <button class="btn btn-danger" style="padding:7px 12px; font-size:12px;" onclick="changeStatus('${c.id}','CANCELLED')">Cancel</button>`;
-          else if (c.status === 'PAUSED') actions = `
-            <button class="btn btn-success" style="padding:7px 14px; font-size:12px;" onclick="changeStatus('${c.id}','LIVE')">Resume</button>
-            <button class="btn btn-danger" style="padding:7px 12px; font-size:12px;" onclick="changeStatus('${c.id}','CANCELLED')">Cancel</button>`;
-          else if (c.status === 'SUBMITTED') actions = '<span class="badge cyan">Awaiting Admin</span>';
-          else if (c.status === 'COMPLETED') actions = '<span class="badge green">Finished</span>';
-          else actions = `<span class="badge ${c.status === 'REJECTED' ? 'red' : 'gray'}">${c.status}</span>`;
-
-          const pct = c.target_quantity ? Math.round((c.completed_quantity / c.target_quantity) * 100) : 0;
-          return `
-            <div class="panel">
-              <div class="row-item" style="border:none; padding:0 0 10px;">
-                <div style="flex:1; min-width:0;">
-                  <div style="font-weight:700; font-size:15px;">${escapeHtml(c.title)}</div>
-                  <div class="row-sub">${escapeHtml(c.task_types?.name || 'Task')} • ${formatCurrency(c.total_budget)} • ${c.completed_quantity}/${c.target_quantity} workers</div>
-                </div>
-                <span class="badge ${c.status === 'LIVE' ? 'green' : c.status === 'PAUSED' ? 'amber' : c.status === 'REJECTED' ? 'red' : c.status === 'COMPLETED' ? 'gray' : 'cyan'}">${c.status}</span>
-              </div>
-              <div style="height:6px; background:var(--bg-primary); border-radius:4px; margin-bottom:14px; overflow:hidden;">
-                <div style="height:100%; width:${pct}%; background:var(--accent); border-radius:4px;"></div>
-              </div>
-              <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">${actions}</div>
-            </div>`;
-        }).join('');
-      } catch (err) {
-        document.getElementById('campaignList').innerHTML = `<div class="panel" style="color:var(--error);">${escapeHtml(err.message)}</div>`;
+        box.innerHTML = campaigns.map(renderCampaign).join('');
+      } catch (error) {
+        box.innerHTML = `<div class="panel empty-state error-state">${escapeHtml(error.message || 'Could not load campaigns.')}</div>`;
       }
     }
 
-    window.submitCamp = async function (id) {
-      if (!confirm('Submit this campaign for admin review?')) return;
-      try {
-        await apiClient.request('campaigns.js', { action: 'submit', campaignId: id });
-        showToast('Submitted for review!', 'success');
-        setTimeout(() => load(), 800);
-      } catch (e) { showToast(e.message, 'error'); }
-    };
+    window.reviewCampaign = async function (campaignId, reviewAction) {
+      const isApproval = reviewAction === 'APPROVED';
+      const promptText = isApproval
+        ? 'Optional approval note:'
+        : 'Optional rejection reason:';
+      const adminNote = window.prompt(promptText, '');
+      if (adminNote === null) return;
 
-    window.changeStatus = async function (id, status) {
-      const msg = status === 'CANCELLED' ? 'Cancel campaign and refund remaining budget to wallet?' : `Change status to ${status}?`;
-      if (!confirm(msg)) return;
-      try {
-        await apiClient.request('campaigns.js', { action: 'change_status', campaignId: id, newStatus: status });
-        showToast(`Campaign ${status.toLowerCase()}.`, 'success');
-        setTimeout(() => load(), 800);
-      } catch (e) { showToast(e.message, 'error'); }
-    };
+      const confirmation = isApproval
+        ? 'Approve this campaign and make it live?'
+        : 'Reject this campaign?';
+      if (!window.confirm(confirmation)) return;
 
-    window.openEdit = function (id, title, instructions, link, quantity, canEditQuantity) {
-      document.getElementById('editId').value = id;
-      document.getElementById('editTitle').value = title;
-      document.getElementById('editInstructions').value = instructions;
-      document.getElementById('editLink').value = link;
-      document.getElementById('editQuantity').value = quantity || 1;
-      document.getElementById('editQuantity').disabled = !canEditQuantity;
-      document.getElementById('editQuantityHint').textContent = canEditQuantity
-        ? 'Quantity can be changed while the campaign is a draft.'
-        : 'Worker quantity cannot be changed after the campaign becomes live.';
-      document.getElementById('editModal').classList.add('active');
-    };
-    window.closeModal = function () { document.getElementById('editModal').classList.remove('active'); };
+      const card = document.getElementById(`campaign-${campaignId}`);
+      const buttons = card ? card.querySelectorAll('button') : [];
+      buttons.forEach(button => { button.disabled = true; });
 
-    document.getElementById('saveEditBtn').addEventListener('click', async () => {
       try {
-        const payload = {
-          action: 'update_campaign',
-          campaignId: document.getElementById('editId').value,
-          title: document.getElementById('editTitle').value,
-          instructions: document.getElementById('editInstructions').value,
-          destination_link: document.getElementById('editLink').value
-        };
-        if (!document.getElementById('editQuantity').disabled) payload.target_quantity = parseInt(document.getElementById('editQuantity').value, 10);
-        await apiClient.request('campaigns.js', payload);
-        showToast('Campaign updated!', 'success');
-        closeModal();
-        setTimeout(() => load(), 800);
-      } catch (e) { showToast(e.message, 'error'); }
-    });
+        await apiClient.request('admin.js', {
+          action: 'review_campaign',
+          campaignId,
+          reviewAction,
+          adminNote: adminNote.trim()
+        });
+        showToast(`Campaign ${reviewAction.toLowerCase()}.`, 'success');
+        card?.remove();
+        const remaining = document.querySelectorAll('.campaign-card').length;
+        document.getElementById('countBadge').textContent = remaining;
+        if (remaining === 0) {
+          document.getElementById('campaignList').innerHTML = '<div class="panel empty-state">No campaigns are waiting for review.</div>';
+        }
+      } catch (error) {
+        buttons.forEach(button => { button.disabled = false; });
+        showToast(error.message || 'Campaign review failed.', 'error');
+      }
+    };
   </script>
 </body>
 </html>
