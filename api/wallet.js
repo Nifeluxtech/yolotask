@@ -174,9 +174,10 @@ module.exports = async (req, res) => {
       // ---------- DAILY CHECK-IN ----------
       case 'get_checkin_status': {
         requireRole(profile, ['earner']);
-        const { data } = await supabaseAdmin.from('wallet_ledger')
+        const { data, error } = await supabaseAdmin.from('wallet_ledger')
           .select('created_at').eq('user_id', profile.id).eq('transaction_type', 'DAILY_CHECKIN')
           .order('created_at', { ascending: false }).limit(1);
+        if (error) throw { code: 'CHECKIN_STATUS_FAILED', message: 'Could not load daily income status.', statusCode: 502 };
         const last = data && data[0] ? data[0].created_at : null;
         const todayUtc = new Date().toISOString().slice(0, 10);
         const checked = !!last && last.slice(0, 10) === todayUtc;
@@ -187,7 +188,15 @@ module.exports = async (req, res) => {
       case 'daily_checkin': {
         requireRole(profile, ['earner']);
         const { data, error } = await supabaseAdmin.rpc('perform_daily_checkin', { p_user_id: profile.id });
-        if (error) throw { code: 'CHECKIN_FAILED', message: error.message || 'Already checked in today.', statusCode: 400 };
+        if (error) {
+          console.error('Daily check-in RPC failed:', error);
+          const message = /already|duplicate|unique/i.test(error.message || '')
+            ? 'You have already claimed today\'s daily income.'
+            : /function .* does not exist|could not find the function/i.test(error.message || '')
+              ? 'Daily income is not configured yet. Apply the Supabase daily-check-in migration and try again.'
+              : 'Daily income could not be claimed. Please try again.';
+          throw { code: 'CHECKIN_FAILED', message, statusCode: 400 };
+        }
         return sendSuccess(res, { reward: data }, `Check-in successful! +₦${Number(data).toLocaleString()} added to your wallet.`);
       }
 
