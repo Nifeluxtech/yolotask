@@ -106,7 +106,7 @@ function showToast(message, type = 'success') {
 
     const token = localStorage.getItem('yolotask_token');
     if (token) {
-      fetch('/api/auth.js', {
+      const loadNotificationBadge = () => fetch('/api/auth.js', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ action: 'get_notifications' })
@@ -116,6 +116,11 @@ function showToast(message, type = 'success') {
         const badge = document.getElementById('bellBadge');
         if (badge && unread > 0) { badge.textContent = unread > 9 ? '9+' : unread; badge.style.display = 'inline-block'; }
       }).catch(() => {});
+
+      // Never make the page's critical dashboard requests compete with this
+      // secondary badge request.
+      if ('requestIdleCallback' in window) requestIdleCallback(loadNotificationBadge, { timeout: 4000 });
+      else window.setTimeout(loadNotificationBadge, 1500);
     }
   }
 
