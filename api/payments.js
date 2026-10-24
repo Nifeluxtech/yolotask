@@ -109,6 +109,12 @@ module.exports = async (req, res) => {
 
         // ---------- AFRSTAR REDIRECT ----------
         if (gw.deposit_gateway === 'afrstar') {
+          const phone = String(req.body.phone || profile.phone || auth.user?.phone || '')
+            .replace(/[\s\-()]/g, '');
+          if (!/^\+?\d{10,14}$/.test(phone)) {
+            return sendError(res, 'PHONE_REQUIRED', 'Enter a valid phone number before paying with AfrStar.', 400);
+          }
+
           // Create the local record first so an immediate provider callback
           // can always find and settle the transaction.
           await supabaseAdmin.from('payment_transactions').insert({
@@ -121,7 +127,7 @@ module.exports = async (req, res) => {
             amount,
             name: profile.full_name,
             email: userEmail,
-            phone: profile.phone,
+            phone,
             remark: 'YOLOTASK wallet top-up',
             redirectUrl: `${callbackBase}/${rolePath}/wallet.html?trxref=${reference}`
           });
