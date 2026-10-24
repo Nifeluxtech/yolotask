@@ -44,7 +44,7 @@
         <div class="flex justify-between items-center" style="margin-bottom:14px; flex-wrap:wrap; gap:10px;">
           <h3 style="margin:0;">🔀 Payment Gateways</h3>
           <div style="display:flex; gap:8px; align-items:center;">
-            <span class="badge cyan" id="vqBalBadge">VQPay: …</span>
+            <span class="badge cyan" id="vqBalBadge">AfrStar: …</span>
             <a href="/admin/gateway.html" class="btn btn-outline" style="padding:6px 12px; font-size:11px;">Full Settings →</a>
           </div>
         </div>
@@ -53,24 +53,24 @@
             <label class="f-label">Deposits / Top-ups</label>
             <select id="gwDeposit" class="f-input" style="margin:0;">
               <option value="paystack">Paystack (card checkout)</option>
-              <option value="vqpay">VQPay (redirect cashier)</option>
+              <option value="afrstar">AfrStar (redirect cashier)</option>
             </select>
           </div>
           <div>
             <label class="f-label">Withdrawals / Payouts</label>
             <select id="gwPayout" class="f-input" style="margin:0;">
               <option value="manual">Manual (admin transfers)</option>
-              <option value="vqpay">VQPay (auto bank payout)</option>
+              <option value="afrstar">AfrStar (auto bank payout)</option>
             </select>
           </div>
         </div>
-        <p style="font-size:11px; color:var(--text-muted); margin-top:10px;">Changes apply instantly to all users. VQPay deposits need the Nigeria method ID configured in Full Settings.</p>
+        <p style="font-size:11px; color:var(--text-muted); margin-top:10px;">Changes apply instantly to all users. AfrStar deposits need the credentials are configured in the server environment.</p>
       </div>
 
       <div class="panel">
         <h3>Quick Actions</h3>
         <div class="quick-grid">
-          <a href="/admin/gateway.html" class="quick-card"><div class="qc-icon">🔀</div><div class="qc-title">Gateways</div><div style="font-size:11px; color:var(--text-secondary);">VQPay config & bank map</div></a>
+          <a href="/admin/gateway.html" class="quick-card"><div class="qc-icon">🔀</div><div class="qc-title">Gateways</div><div style="font-size:11px; color:var(--text-secondary);">AfrStar config & bank map</div></a>
           <a href="/admin/sms.html" class="quick-card"><div class="qc-icon">📱</div><div class="qc-title">SMS Management</div><div style="font-size:11px; color:var(--text-secondary);">Providers, rates & audit</div></a>
           <a href="/admin/catalog.html" class="quick-card"><div class="qc-icon">🧩</div><div class="qc-title">Catalog Manager</div><div style="font-size:11px; color:var(--text-secondary);">Platforms & task types</div></a>
           <a href="/admin/campaigns.html" class="quick-card"><div class="qc-icon">📝</div><div class="qc-title">Review Campaigns</div></a>
@@ -139,18 +139,18 @@
       const pay = document.getElementById('gwPayout');
       const bal = document.getElementById('vqBalBadge');
       try {
-        const r = await apiClient.request('vqpay.js', { action: 'get_gateway_settings' });
+        const r = await apiClient.request('mgmpay.js', { action: 'get_gateway_settings' });
         dep.value = r.data.settings.deposit_gateway || 'paystack';
         pay.value = r.data.settings.payout_gateway || 'manual';
       } catch (err) {
         dep.disabled = true; pay.disabled = true;
       }
       try {
-        const b = await apiClient.request('vqpay.js', { action: 'payout_balance' });
-        bal.textContent = 'VQPay: $' + Number(b.data.available).toFixed(2);
+        const b = await apiClient.request('mgmpay.js', { action: 'payout_balance' });
+        bal.textContent = 'AfrStar: $' + Number(b.data.available).toFixed(2);
         bal.className = 'badge ' + (Number(b.data.available) > 0 ? 'green' : 'red');
       } catch (e) {
-        bal.textContent = 'VQPay: ERR';
+        bal.textContent = 'AfrStar: ERR';
         bal.className = 'badge red';
       }
     }
@@ -159,7 +159,7 @@
       const prev = el.dataset.prev || el.value;
       el.disabled = true;
       try {
-        await apiClient.request('vqpay.js', { action: 'update_gateway_settings', settings: { [key]: value } });
+        await apiClient.request('mgmpay.js', { action: 'update_gateway_settings', settings: { [key]: value } });
         showToast(`${key === 'deposit_gateway' ? 'Deposits' : 'Payouts'} now via ${value.toUpperCase()}.`, 'success');
         el.dataset.prev = value;
       } catch (err) {
@@ -174,7 +174,7 @@
       switchGateway('deposit_gateway', e.target.value, e.target);
     });
     document.getElementById('gwPayout').addEventListener('change', (e) => {
-      if (!confirm(`Route payouts through ${e.target.value === 'vqpay' ? 'VQPay auto-payout' : 'MANUAL admin transfers'}?`)) { loadGateway(); return; }
+      if (!confirm(`Route payouts through ${e.target.value === 'afrstar' ? 'AfrStar auto-payout' : 'MANUAL admin transfers'}?`)) { loadGateway(); return; }
       switchGateway('payout_gateway', e.target.value, e.target);
     });
 
