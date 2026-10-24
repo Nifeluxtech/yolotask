@@ -1,15 +1,12 @@
-// /api/mgmpay.js — MGM Pay gateway control + payout execution + diagnostics
+// /api/mgmpay.js — Legacy route name; AfrStar gateway control + payout execution.
 const { getAuthenticatedUser, requireRole } = require('../lib/auth');
 const { sendSuccess, sendError } = require('../lib/response');
 const { supabaseAdmin } = require('../lib/supabase');
 const mgmpay = require('../lib/mgmpay');
 
 const GW_RULES = {
-  deposit_gateway:    { allowed: ['paystack', 'mgmpay'] },
-  payout_gateway:     { allowed: ['manual', 'mgmpay'] },
-  mgmpay_country:     { type: 'string', max: 4 },
-  mgmpay_deposit_method: { type: 'string', max: 60 },
-  mgmpay_deposit_flow: { allowed: ['REDIRECT', 'DIRECT'] }
+  deposit_gateway:    { allowed: ['paystack', 'afrstar'] },
+  payout_gateway:     { allowed: ['manual', 'afrstar'] }
 };
 
 async function readGatewaySettings() {
@@ -17,12 +14,11 @@ async function readGatewaySettings() {
     .in('key', Object.keys(GW_RULES));
   const map = {};
   (data || []).forEach(r => { map[r.key] = r.value; });
+  const normalize = value => ['mgmpay', 'vqpay', 'afrstar'].includes(String(value || '').toLowerCase()) ? 'afrstar' : value;
   return {
-    deposit_gateway: map.deposit_gateway || 'paystack',
-    payout_gateway: map.payout_gateway || 'manual',
-    mgmpay_country: map.mgmpay_country || 'NG',
-    mgmpay_deposit_method: map.mgmpay_deposit_method || 'BANK_CARD',
-    mgmpay_deposit_flow: map.mgmpay_deposit_flow || 'REDIRECT'
+    deposit_gateway: normalize(map.deposit_gateway) || 'paystack',
+    payout_gateway: normalize(map.payout_gateway) || 'manual',
+    afrstar_base_url: process.env.AFRSTAR_BASE_URL || 'https://ngn.afrstar.com'
   };
 }
 
@@ -82,39 +78,16 @@ module.exports = async (req, res) => {
       // ---------- CONNECTION PROBE ----------
       case 'ping': {
         requireRole(profile, ['admin']);
-        const candidates = [
-          process.env.MGMPAY_BASE_URL,
-          'https://api.mgm-paysandbox.com',
-          'https://api.mgm-pay.com'
-        ];
+        const candidates = [process.env.AFRSTAR_BASE_URL || 'https://ngn.afrstar.com'];
         const unique = [...new Set(candidates.filter(Boolean))];
         const report = [];
         
         for (const base of unique) {
           try {
             const c = mgmpay.cfg();
-            const merchant_no = c.merchantNo;
-            const signature = mgmpay.sign({ merchant_no }, c.payoutKey, { excludeNested: [] });
-            
-            const resp = await fetch(base.replace(/\/+$/, '') + '/api/merchant/balance', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'ApiVersion': '1.0',
-                'AppId': c.appId,
-                'Noncestr': String(Math.floor(10000000 + Math.random() * 90000000)),
-                'Timestamp': String(Date.now()),
-                'User-Agent': 'YOLOTASK-Probe/1.0'
-              },
-              body: JSON.stringify({ merchant_no, signature })
-            });
-            
-            const text = await resp.text();
-            let verdict = 'BLOCKED';
-            if (resp.ok && text.includes('"state"')) verdict = 'REACHABLE';
-            else if (resp.status === 403 && text.includes('<html')) verdict = 'WAF/IP-BLOCK';
-            
-            report.push({ base, http: resp.status, verdict, snippet: text.slice(0, 160) });
+            const probe = await mgmpay.getBalance();
+            report.push({ base, http: 200, verdict: 'REACHABLE', snippet: JSON.stringify(probe).slice(0, 160) });
+            continue;
             
           } catch (e) {
             report.push({ base, http: 'EXC', verdict: 'NETWORK ERROR', snippet: e.message });
@@ -128,9 +101,9 @@ module.exports = async (req, res) => {
         requireRole(profile, ['admin']);
         const data = await mgmpay.getBalance();
         return sendSuccess(res, {
-          available: Number(data.available_balance || 0),
-          frozen: Number(data.freeze_balance || 0),
-          total: Number(data.total_balance || 0)
+          available: Number(data.balance || 0),
+          frozen: 0,
+          total: Number(data.balance || 0)
         });
       }
       
@@ -140,12 +113,12 @@ module.exports = async (req, res) => {
         return sendSuccess(res, { banks: data || [] });
       }
       
-      // ---------- EXECUTE A PAYOUT VIA MGM PAY ----------
+      // ---------- EXECUTE A PAYOUT VIA AFRSTAR ----------
       case 'process_payout': {
         requireRole(profile, ['admin']);
         const s = await readGatewaySettings();
-        if (s.payout_gateway !== 'mgmpay') {
-          return sendError(res, 'GATEWAY_MISMATCH', 'Payout gateway is set to manual. Switch it to mgmpay first.', 400);
+        if (s.payout_gateway !== 'afrstar') {
+          return sendError(res, 'GATEWAY_MISMATCH', 'Payout gateway is set to manual. Switch it to AfrStar first.', 400);
         }
         
         const { withdrawalId } = req.body;
@@ -153,26 +126,21 @@ module.exports = async (req, res) => {
         if (!wd) return sendError(res, 'NOT_FOUND', 'Withdrawal not found.', 404);
         if (wd.status !== 'PENDING') return sendError(res, 'VALIDATION_ERROR', `Withdrawal is ${wd.status}, not PENDING.`, 400);
         
-        const bank = await findMgmBankCode(wd.bank_name);
-        if (!bank) {
-          return sendError(res, 'BANK_NOT_MAPPED', `"${wd.bank_name}" has no MGM Pay bank code mapped. Use manual payout or add the mapping.`, 400);
-        }
-        
         const orderId = 'WD-' + wd.id;
-        const notificationUrl = `${process.env.APP_URL || ''}/api/mgmpay-callback.js`;
+        const bank = await findMgmBankCode(wd.bank_name);
+        const bankCode = String(wd.bank_code || bank?.mgmpay_code || '').trim();
+        if (!bankCode) {
+          return sendError(res, 'BANK_CODE_REQUIRED', 'This withdrawal has no AfrStar Nigerian bank code. Add the bank-code mapping before paying.', 400);
+        }
         
         const result = await mgmpay.createSettlement({
           orderId,
           amount: Number(wd.amount),
-          notificationUrl,
-          country: s.mgmpay_country,
-          currency: 'NGN',
           payee: {
             name: wd.account_name,
             account: String(wd.account_number),
-            account_type: 'BANK',
-            bank_code: bank.mgmpay_code,
-            bank_name: bank.mgmpay_name
+            bank_code: bankCode,
+            bank_name: bank?.mgmpay_name || wd.bank_name
           }
         });
         
@@ -180,52 +148,20 @@ module.exports = async (req, res) => {
         await supabaseAdmin.from('withdrawals')
           .update({
             status: 'PROCESSING',
-            gateway: 'mgmpay',
-            vqpay_settlement_id: String(respData.settlement_id || ''),
-            vqpay_status: 'APPLY',
-            vqpay_status_code: 1
+            gateway: 'afrstar',
+            vqpay_settlement_id: String(respData.platform_osn || ''),
+            vqpay_status: String(respData.status || 'init'),
+            vqpay_status_code: 0
           })
           .eq('id', wd.id).eq('status', 'PENDING');
         
-        return sendSuccess(res, { settlement_id: respData.settlement_id || null },
-          'Payout sent to MGM Pay. Status updates arrive via callback (sandbox auto-succeeds in ~60s).');
+        return sendSuccess(res, { platform_osn: respData.platform_osn || null },
+          'Payout submitted to AfrStar. The payout callback will update the final status.');
       }
       
       case 'query_payout': {
         requireRole(profile, ['admin']);
-        const { withdrawalId } = req.body;
-        const { data: wd } = await supabaseAdmin.from('withdrawals').select('*').eq('id', withdrawalId).single();
-        if (!wd) return sendError(res, 'NOT_FOUND', 'Withdrawal not found.', 404);
-        
-        const result = await mgmpay.querySettlement('WD-' + wd.id);
-        const d = result.data || result;
-        const code = Number(d.status_code || 0);
-        
-        const patch = { vqpay_status: String(d.status || ''), vqpay_status_code: code };
-        if (d.settlement_id) patch.vqpay_settlement_id = String(d.settlement_id);
-        
-        if (mgmpay.isFinalSuccess(code) && wd.status !== 'COMPLETED') {
-          patch.status = 'COMPLETED'; patch.processed_at = new Date().toISOString();
-        } else if (mgmpay.isTerminalFail(code) && (wd.status === 'PENDING' || wd.status === 'PROCESSING')) {
-          patch.status = 'FAILED';
-          
-          const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', wd.user_id).single();
-          if (wallet && wd.status !== 'FAILED') {
-            await supabaseAdmin.from('wallets')
-              .update({ available_balance: Number(wallet.available_balance) + Number(wd.amount), updated_at: new Date().toISOString() })
-              .eq('user_id', wd.user_id);
-            
-            await supabaseAdmin.from('wallet_ledger').insert({
-              user_id: wd.user_id, transaction_type: 'WITHDRAWAL_REFUND', amount: Number(wd.amount),
-              direction: 'CREDIT', status: 'COMPLETED', reference: 'WDREF-' + wd.id
-            });
-          }
-        }
-        
-        await supabaseAdmin.from('withdrawals').update(patch).eq('id', wd.id);
-        
-        return sendSuccess(res, { status: d.status, status_code: code, detail: d.status_detail || '' },
-          `MGM Pay says: ${d.status} (${code})`);
+        return sendError(res, 'AFRSTAR_CALLBACK_ONLY', 'AfrStar payout status is confirmed by callback. Refresh after the provider sends the result.', 400);
       }
       
       default:
