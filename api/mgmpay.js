@@ -9,6 +9,24 @@ const GW_RULES = {
   payout_gateway:     { allowed: ['manual', 'afrstar'] }
 };
 
+// AfrStar has its own bank-code directory. Do not send the bank_code saved by
+// Paystack account resolution directly to AfrStar: those codes are different.
+const AFRSTAR_BANK_CODES = [
+  ['access bank', '80000001'], ['citibank', '80000002'], ['ecobank', '80000004'],
+  ['fidelity bank', '80000006'], ['first bank', '80000007'], ['fcmb', '80000008'],
+  ['first city monument', '80000008'], ['gtbank', '80000009'], ['guaranty trust', '80000009'],
+  ['heritage bank', '80000010'], ['jaiz bank', '80000011'], ['keystone bank', '80000012'],
+  ['parallex bank', '80000014'], ['providus bank', '80000015'], ['polaris bank', '80000016'],
+  ['stanbic ibtc', '80000017'], ['standard chartered', '80000018'], ['sterling bank', '80000019'],
+  ['union bank', '80000021'], ['uba', '80000022'], ['united bank for africa', '80000022'],
+  ['unity bank', '80000023'], ['wema bank', '80000024'], ['zenith bank', '80000025'],
+  ['kuda', '80000028'], ['moniepoint', '80000029'], ['opay', '80000030'],
+  ['finca', '80000032'], ['palmpay', '80000033'], ['rubies', '80000034'],
+  ['titan trust', '80000035'], ['globus', '80000040'], ['vfd', '80000044'],
+  ['carbon', '80000077'], ['nomba', '80000099'], ['gomoney', '80000101'],
+  ['now now', '80000106'], ['safe haven', '80000115'], ['paystack', '80000141']
+];
+
 async function readGatewaySettings() {
   const { data } = await supabaseAdmin.from('platform_settings').select('key, value')
     .in('key', Object.keys(GW_RULES));
@@ -24,8 +42,14 @@ async function readGatewaySettings() {
 
 async function findMgmBankCode(bankName) {
   const name = String(bankName || '').toLowerCase();
+  const direct = AFRSTAR_BANK_CODES.find(([label]) => name.includes(label));
+  if (direct) return { match_name: direct[0], mgmpay_code: direct[1], mgmpay_name: bankName };
+
+  // Keep support for an administrator-maintained map, but only accept values
+  // shaped like AfrStar's documented 8000xxxx codes. This prevents a legacy
+  // Paystack code such as 999992 from reaching AfrStar.
   const { data } = await supabaseAdmin.from('mgmpay_bank_map').select('*');
-  const matches = (data || []).filter(m => name.includes(m.match_name));
+  const matches = (data || []).filter(m => name.includes(String(m.match_name || '').toLowerCase()) && /^8000\d{4}$/.test(String(m.mgmpay_code || '')));
   if (!matches.length) return null;
   matches.sort((a, b) => b.match_name.length - a.match_name.length); // Longest match wins
   return matches[0];
@@ -128,7 +152,9 @@ module.exports = async (req, res) => {
         
         const orderId = 'WD-' + wd.id;
         const bank = await findMgmBankCode(wd.bank_name);
-        const bankCode = String(wd.bank_code || bank?.mgmpay_code || '').trim();
+        // Never use wd.bank_code here: it is normally the Paystack code used
+        // when the beneficiary account was resolved.
+        const bankCode = String(bank?.mgmpay_code || '').trim();
         if (!bankCode) {
           return sendError(res, 'BANK_CODE_REQUIRED', 'This withdrawal has no AfrStar Nigerian bank code. Add the bank-code mapping before paying.', 400);
         }
