@@ -1,132 +1,149 @@
-// /api/mgmpay-callback.js — MGM Pay webhooks (deposit + settlement)
+// /api/mgmpay-callback.js
+// Legacy route filename retained for provider callback compatibility; handles AfrStar v2 callbacks.
 const { supabaseAdmin } = require('../lib/supabase');
-const mgmpay = require('../lib/mgmpay');
+const afrstar = require('../lib/mgmpay');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).send('FAIL');
-  
-  const p = req.body || {};
-  const isSettlement = !!p.settlement_id;
-  const isCollection = !!p.payment_id;
-  
+
+  const payload = req.body || {};
   try {
-    const secret = isSettlement ? process.env.MGMPAY_PAYOUT_KEY : process.env.MGMPAY_COLLECTION_KEY;
-    if (!secret) return res.status(500).send('FAIL');
-    
-    // Verify signature FIRST before processing anything
-    const excludeNested = isSettlement ? ['payee'] : ['payer'];
-    if (!mgmpay.verifySignature(p, secret, excludeNested)) {
-      console.error('MGM Pay callback signature mismatch:', JSON.stringify(p).slice(0, 300));
-      return res.status(400).send('FAIL');
+    const orderId = String(payload.order_sn || '');
+    if (!orderId) return res.status(400).send('FAIL');
+
+    const { data: topup } = await supabaseAdmin.from('payment_transactions')
+      .select('*').eq('paystack_reference', orderId).maybeSingle();
+    if (topup) {
+      await handleCollection(payload, topup);
+      return res.status(200).send('SUCCESS');
     }
-    
-    if (isCollection) await handleCollection(p);
-    else if (isSettlement) await handleSettlement(p);
-    
-    // Docs say return exact uppercase SUCCESS after successful processing
-    return res.status(200).send('SUCCESS');
-    
-  } catch (err) {
-    console.error('MGM Pay callback error:', err);
-    // Still acknowledge to prevent infinite retries; reconcile via query endpoint
-    return res.status(200).send('SUCCESS');
+
+    const withdrawalId = orderId.startsWith('WD-') ? orderId.slice(3) : '';
+    const { data: withdrawal } = withdrawalId
+      ? await supabaseAdmin.from('withdrawals').select('*').eq('id', withdrawalId).maybeSingle()
+      : { data: null };
+    if (withdrawal) {
+      await handlePayout(payload, withdrawal);
+      return res.status(200).send('SUCCESS');
+    }
+
+    console.error('AfrStar callback: unknown order', orderId);
+    return res.status(404).send('FAIL');
+  } catch (error) {
+    console.error('AfrStar callback error:', error);
+    // Do not acknowledge failed processing. AfrStar can retry the callback.
+    return res.status(500).send('FAIL');
   }
 };
 
-// ---------- DEPOSIT CREDIT (idempotent claim) ----------
-async function handleCollection(p) {
-  const orderId = String(p.order_id || '');
-  const { data: tx } = await supabaseAdmin.from('payment_transactions')
-    .select('*').eq('paystack_reference', orderId).maybeSingle();
-  
-  if (!tx) { console.error('MGM Pay collection callback: unknown order', orderId); return; }
-  if (tx.status === 'SUCCESS') return; // Already credited
-  
-  if (mgmpay.isFinalSuccess(p.status_code)) {
-    const { data: claimed } = await supabaseAdmin.from('payment_transactions')
-      .update({ 
-        status: 'SUCCESS', 
-        gateway: 'mgmpay',
-        raw_status: String(p.status || ''),
-        // Store MGM-specific IDs if needed later
-      })
-      .eq('id', tx.id).eq('status', 'PENDING').select();
-    
-    if (!claimed || claimed.length === 0) return; // Lost race
-    
-    const naira = Number(p.amount);
-    const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', tx.user_id).single();
-    
-    if (wallet) {
-      await supabaseAdmin.from('wallets')
-        .update({ available_balance: Number(wallet.available_balance) + naira, updated_at: new Date().toISOString() })
-        .eq('user_id', tx.user_id);
-    }
-    
-    await supabaseAdmin.from('wallet_ledger').insert({
-      user_id: tx.user_id, transaction_type: 'TOPUP', amount: naira,
-      direction: 'CREDIT', status: 'COMPLETED', reference: 'TOPUP-' + orderId
-    });
+async function handleCollection(payload, tx) {
+  if (!afrstar.verifyCollection(payload, tx.amount)) {
+    throw new Error('AfrStar collection signature or merchant mismatch');
   }
+
+  const status = Number(payload.status);
+  if (status !== 1) {
+    await supabaseAdmin.from('payment_transactions')
+      .update({ raw_status: String(payload.message || status) })
+      .eq('id', tx.id).eq('status', 'PENDING');
+    return;
+  }
+
+  const paid = Number(payload.amount_paid || payload.amount || 0);
+  if (!Number.isFinite(paid) || paid !== Number(tx.amount)) {
+    throw new Error(`AfrStar collection amount mismatch for ${tx.paystack_reference}`);
+  }
+
+  const { data: claimed } = await supabaseAdmin.from('payment_transactions')
+    .update({
+      status: 'SUCCESS',
+      gateway: 'afrstar',
+      raw_status: String(payload.message || 'Paid Success'),
+      vqpay_payment_id: String(payload.platform_osn || payload.utr || payload.session_id || '')
+    })
+    .eq('id', tx.id).eq('status', 'PENDING').select();
+
+  if (!claimed || claimed.length === 0) return;
+
+  const { data: wallet } = await supabaseAdmin.from('wallets')
+    .select('available_balance').eq('user_id', tx.user_id).single();
+  if (!wallet) throw new Error('Wallet not found for AfrStar collection');
+
+  await supabaseAdmin.from('wallets')
+    .update({ available_balance: Number(wallet.available_balance) + paid, updated_at: new Date().toISOString() })
+    .eq('user_id', tx.user_id);
+
+  await supabaseAdmin.from('wallet_ledger').insert({
+    user_id: tx.user_id,
+    transaction_type: 'TOPUP',
+    amount: paid,
+    direction: 'CREDIT',
+    status: 'COMPLETED',
+    reference: 'TOPUP-' + tx.paystack_reference
+  });
 }
 
-// ---------- SETTLEMENT RESULT ----------
-async function handleSettlement(p) {
-  const orderId = String(p.order_id || ''); // Format: WD-<uuid>
-  const wdId = orderId.startsWith('WD-') ? orderId.slice(3) : null;
-  
-  if (!wdId) { console.error('MGM Pay settlement callback: unknown order', orderId); return; }
-  
-  const { data: wd } = await supabaseAdmin.from('withdrawals').select('*').eq('id', wdId).maybeSingle();
-  if (!wd) return;
-  
+async function handlePayout(payload, wd) {
+  if (!afrstar.verifyPayout(payload, wd.amount)) {
+    throw new Error('AfrStar payout signature or merchant mismatch');
+  }
+
+  const status = Number(payload.status);
   const patch = {
-    gateway: 'mgmpay',
-    vqpay_settlement_id: String(p.settlement_id || ''), // Reuse column name for now
-    vqpay_status: String(p.status || ''),
-    vqpay_status_code: Number(p.status_code || 0)
+    gateway: 'afrstar',
+    vqpay_settlement_id: String(payload.platform_osn || payload.utr || ''),
+    vqpay_status: String(payload.message || status),
+    vqpay_status_code: status
   };
-  
-  if (mgmpay.isFinalSuccess(p.status_code)) {
+
+  if (status === 1) {
     const { data: claimed } = await supabaseAdmin.from('withdrawals')
       .update({ ...patch, status: 'COMPLETED', processed_at: new Date().toISOString() })
-      .eq('id', wdId).in('status', ['PENDING', 'PROCESSING']).select();
-    
+      .eq('id', wd.id).in('status', ['PENDING', 'PROCESSING']).select();
+
     if (claimed && claimed.length) {
       await supabaseAdmin.from('notifications').insert({
-        user_id: wd.user_id, title: 'Withdrawal Processed',
-        message: `₦${Number(wd.amount).toLocaleString()} sent to your bank via MGM Pay.`, type: 'WALLET'
+        user_id: wd.user_id,
+        title: 'Withdrawal Processed',
+        message: `₦${Number(wd.amount).toLocaleString()} sent to your bank via AfrStar.`,
+        type: 'WALLET'
       });
     }
-    
-  } else if (mgmpay.isTerminalFail(p.status_code)) {
+    return;
+  }
+
+  if (status === 9) {
     const { data: claimed } = await supabaseAdmin.from('withdrawals')
       .update({ ...patch, status: 'FAILED' })
-      .eq('id', wdId).in('status', ['PENDING', 'PROCESSING']).select();
-    
+      .eq('id', wd.id).in('status', ['PENDING', 'PROCESSING']).select();
+
     if (claimed && claimed.length) {
-      // Refund earner
-      const { data: wallet } = await supabaseAdmin.from('wallets').select('available_balance').eq('user_id', wd.user_id).single();
-      
-      if (wallet) {
-        await supabaseAdmin.from('wallets')
-          .update({ available_balance: Number(wallet.available_balance) + Number(wd.amount), updated_at: new Date().toISOString() })
-          .eq('user_id', wd.user_id);
-      }
-      
+      const { data: wallet } = await supabaseAdmin.from('wallets')
+        .select('available_balance').eq('user_id', wd.user_id).single();
+      if (!wallet) throw new Error('Wallet not found for AfrStar payout refund');
+
+      await supabaseAdmin.from('wallets')
+        .update({ available_balance: Number(wallet.available_balance) + Number(wd.amount), updated_at: new Date().toISOString() })
+        .eq('user_id', wd.user_id);
+
       await supabaseAdmin.from('wallet_ledger').insert({
-        user_id: wd.user_id, transaction_type: 'WITHDRAWAL_REFUND', amount: Number(wd.amount),
-        direction: 'CREDIT', status: 'COMPLETED', reference: 'WDREF-' + wdId
+        user_id: wd.user_id,
+        transaction_type: 'WITHDRAWAL_REFUND',
+        amount: Number(wd.amount),
+        direction: 'CREDIT',
+        status: 'COMPLETED',
+        reference: 'WDREF-' + wd.id
       });
-      
+
       await supabaseAdmin.from('notifications').insert({
-        user_id: wd.user_id, title: 'Withdrawal Failed',
-        message: `The payout was rejected/returned by MGM Pay. ₦${Number(wd.amount).toLocaleString()} returned to your wallet.`, type: 'WALLET'
+        user_id: wd.user_id,
+        title: 'Withdrawal Failed',
+        message: `The payout was rejected by AfrStar. ₦${Number(wd.amount).toLocaleString()} returned to your wallet.`,
+        type: 'WALLET'
       });
     }
-    
-  } else {
-    // Non-terminal states: CREATED, WAITING, DISBURSING → just record
-    await supabaseAdmin.from('withdrawals').update(patch).eq('id', wdId);
+    return;
   }
+
+  await supabaseAdmin.from('withdrawals').update(patch).eq('id', wd.id);
 }
