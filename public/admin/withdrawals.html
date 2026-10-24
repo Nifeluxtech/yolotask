@@ -30,7 +30,7 @@
       </header>
       <p style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;" id="payoutModeLabel">Payout mode: …</p>
       <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">
-        Manual mode: send the transfer yourself, then Mark Paid. VQPay mode: click ⚡ to pay instantly via the provider; callbacks update status automatically.
+        Manual mode: send the transfer yourself, then Mark Paid. AfrStar mode: click ⚡ to pay instantly via the provider; callbacks update status automatically.
       </p>
 
       <div id="list"><div class="panel"><div class="skeleton skeleton-card"></div></div></div>
@@ -47,10 +47,10 @@
       const profile = await checkAuthAndRedirect('admin');
       if (!profile) return;
       try {
-        const g = await apiClient.request('vqpay.js', { action: 'get_gateway_settings' });
+        const g = await apiClient.request('mgmpay.js', { action: 'get_gateway_settings' });
         payoutGateway = g.data.settings.payout_gateway;
         document.getElementById('payoutModeLabel').textContent =
-          'Payout mode: ' + (payoutGateway === 'vqpay' ? 'VQPay auto-payout' : 'Manual bank transfer');
+          'Payout mode: ' + (payoutGateway === 'afrstar' ? 'AfrStar auto-payout' : 'Manual bank transfer');
       } catch (e) {}
       load();
     })();
@@ -76,7 +76,7 @@
                 <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
                   <code style="background:var(--bg-primary); border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:14px; letter-spacing:1px; color:var(--text-primary);">${escapeHtml(String(w.account_number))}</code>
                   <button class="btn btn-outline" style="padding:5px 10px; font-size:11px;" onclick="copyAcct('${escapeHtml(String(w.account_number))}')">Copy</button>
-                  ${w.vqpay_status ? `<span class="badge gray">VQPay: ${escapeHtml(w.vqpay_status)} (${w.vqpay_status_code})</span>` : ''}
+                  ${w.vqpay_status ? `<span class="badge gray">AfrStar: ${escapeHtml(w.vqpay_status)} (${w.vqpay_status_code})</span>` : ''}
                 </div>
               </div>
               <span class="badge ${w.status === 'PENDING' ? 'amber' : w.status === 'COMPLETED' ? 'green' : w.status === 'PROCESSING' ? 'cyan' : 'red'}">${w.status}</span>
@@ -84,13 +84,10 @@
             ${w.status === 'PENDING' ? `
               <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px; flex-wrap:wrap;">
                 <button class="btn btn-danger" style="padding:8px 16px; font-size:12px;" onclick="proc('${w.id}','REJECTED',this)">Reject & Refund</button>
-                ${payoutGateway === 'vqpay' ? `<button class="btn btn-primary" style="padding:8px 16px; font-size:12px;" onclick="vqPay('${w.id}',this)">⚡ Pay via VQPay</button>` : ''}
+                ${payoutGateway === 'afrstar' ? `<button class="btn btn-primary" style="padding:8px 16px; font-size:12px;" onclick="afrPay('${w.id}',this)">⚡ Pay via AfrStar</button>` : ''}
                 <button class="btn btn-success" style="padding:8px 16px; font-size:12px;" onclick="proc('${w.id}','COMPLETED',this)">Mark Paid</button>
               </div>` : ''}
-            ${w.status === 'PROCESSING' ? `
-              <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
-                <button class="btn btn-outline" style="padding:8px 16px; font-size:12px;" onclick="queryVq('${w.id}',this)">🔄 Query VQPay Status</button>
-              </div>` : ''}
+            ${w.status === 'PROCESSING' ? '<div style="font-size:12px; color:var(--text-muted); margin-top:12px; text-align:right;">Awaiting AfrStar payout callback…</div>' : ''}
           </div>
         `).join('');
       } catch (err) {
@@ -119,12 +116,12 @@
       }
     };
 
-    window.vqPay = async function (withdrawalId, btn) {
-      if (!confirm('Send this payout through VQPay now?')) return;
+    window.afrPay = async function (withdrawalId, btn) {
+      if (!confirm('Send this payout through AfrStar now?')) return;
       const old = btn.textContent;
       btn.disabled = true; btn.textContent = 'Sending...';
       try {
-        const res = await apiClient.request('vqpay.js', { action: 'process_payout', withdrawalId });
+        const res = await apiClient.request('mgmpay.js', { action: 'process_payout', withdrawalId });
         showToast(res.message || 'Payout submitted.', 'success');
         setTimeout(() => load(), 800);
       } catch (err) {
@@ -133,17 +130,6 @@
       }
     };
 
-    window.queryVq = async function (withdrawalId, btn) {
-      btn.disabled = true;
-      try {
-        const res = await apiClient.request('vqpay.js', { action: 'query_payout', withdrawalId });
-        showToast(res.message || 'Status updated.', 'success');
-        setTimeout(() => load(), 600);
-      } catch (err) {
-        showToast(err.message, 'error');
-        btn.disabled = false;
-      }
-    };
   </script>
 </body>
 </html>
