@@ -60,7 +60,7 @@
       } catch (e) {}
       try {
         const g = await apiClient.request('mgmpay.js', { action: 'get_gateway_settings' });
-        document.getElementById('gwLabel').textContent = g.data.settings.deposit_gateway === 'mgmpay' ? 'MGM Pay' : 'Paystack';
+        document.getElementById('gwLabel').textContent = g.data.settings.deposit_gateway === 'afrstar' ? 'AfrStar' : 'Paystack';
       } catch (e) {}
 
       handleReturnReference();
@@ -82,7 +82,7 @@
           : list.map(t => `
             <div class="hist-row">
               <div>
-                <div style="font-weight:800; font-size:16px;">${formatCurrency(t.amount)} <span class="gw-badge">${t.gateway === 'mgmpay' ? 'MGM Pay' : 'Paystack'}</span></div>
+                <div style="font-weight:800; font-size:16px;">${formatCurrency(t.amount)} <span class="gw-badge">${t.gateway === 'afrstar' ? 'AfrStar' : 'Paystack'}</span></div>
                 <div style="font-size:12px; color:var(--text-secondary);">${formatDate(t.created_at)} • ${t.status}</div>
               </div>
               <div style="display:flex; gap:8px; align-items:center;">
@@ -124,8 +124,8 @@
         const init = await apiClient.request('payments.js', { action: 'initialize_topup', amount });
         const reference = init.data.reference;
 
-        // ---------- MGM Pay: redirect to cashier ----------
-        if (init.data.gateway === 'mgmpay') {
+        // ---------- AfrStar: redirect to cashier ----------
+        if (init.data.gateway === 'afrstar') {
           window.location.href = init.data.redirect_url;
           return;
         }
