@@ -30,16 +30,15 @@
     <main class="admin-main">
       <header class="admin-header">
         <div class="page-title">Payment Gateways</div>
-        <span class="badge cyan" id="mgmBal">MGM Pay: …</span>
+        <span class="badge cyan" id="mgmBal">AfrStar: …</span>
       </header>
 
       <!-- CONNECTION PROBE -->
       <div class="panel" style="border-color:var(--warning);">
-        <h3>🩺 MGM Pay Connection Diagnostics</h3>
+        <h3>🩺 AfrStar Connection Diagnostics</h3>
         <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">
-          Probes the merchant-balance endpoint on sandbox &amp; production hosts with your credentials.
-          <strong>REACHABLE</strong> = correct domain. <strong>WAF/IP-BLOCK</strong> = ask MGM Pay about source-IP allowlisting (Section 2.1 of their guide).
-          JSON error codes: 213 = signature/key mismatch, 302/304 = merchant/AppId mismatch, 105/106 = IP restriction.
+          Probes the AfrStar balance endpoint using the server-side credentials.
+          <strong>REACHABLE</strong> means the credentials and endpoint responded successfully.
         </p>
         <button class="btn btn-outline" style="padding:9px 18px; font-size:13px;" id="pingBtn">Run Probe</button>
         <div id="pingBox" style="margin-top:12px;"></div>
@@ -50,28 +49,19 @@
         <label class="f-label">Deposits / Top-ups</label>
         <select id="deposit_gateway" class="f-input">
           <option value="paystack">Paystack (inline card checkout)</option>
-          <option value="mgmpay">MGM Pay (redirect cashier — NGN BANK_CARD)</option>
+          <option value="afrstar">AfrStar (redirect hosted checkout)</option>
         </select>
         <label class="f-label">Withdrawals / Payouts</label>
         <select id="payout_gateway" class="f-input">
           <option value="manual">Manual (admin sends bank transfer)</option>
-          <option value="mgmpay">MGM Pay auto-payout to banks</option>
-        </select>
-        <label class="f-label">MGM Pay Country Code</label>
-        <input type="text" id="mgmpay_country" class="f-input" maxlength="4" placeholder="NG" />
-        <label class="f-label">MGM Pay Nigeria Deposit Method ID</label>
-        <input type="text" id="mgmpay_deposit_method" class="f-input" placeholder="BANK_CARD" />
-        <label class="f-label">MGM Pay Deposit Flow</label>
-        <select id="mgmpay_deposit_flow" class="f-input">
-          <option value="REDIRECT">REDIRECT (cashier link)</option>
-          <option value="DIRECT">DIRECT (invoice details)</option>
+          <option value="afrstar">AfrStar auto-payout to Nigerian banks</option>
         </select>
         <button class="btn btn-primary" style="padding:10px 20px; font-size:13px;" id="saveBtn">Save Gateway Settings</button>
       </div>
 
       <div class="panel">
-        <h3>MGM Pay → Nigerian Bank Code Map</h3>
-        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">From Section 5 of the Naira Integration Guide. Longest keyword match wins. Unmapped banks fall back to manual payout with a clear error.</p>
+        <h3>AfrStar → Nigerian Bank Code Map</h3>
+        <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;">AfrStar requires the Nigerian bank code in the <code>ifsc</code> field. Longest keyword match wins. Unmapped banks cannot be paid automatically.</p>
         <div class="table-wrap" id="mapWrap"><div class="skeleton skeleton-text"></div></div>
       </div>
     </main>
@@ -110,9 +100,6 @@
         const s = r.data.settings;
         document.getElementById('deposit_gateway').value = s.deposit_gateway;
         document.getElementById('payout_gateway').value = s.payout_gateway;
-        document.getElementById('mgmpay_country').value = s.mgmpay_country;
-        document.getElementById('mgmpay_deposit_method').value = s.mgmpay_deposit_method;
-        document.getElementById('mgmpay_deposit_flow').value = s.mgmpay_deposit_flow;
       } catch (err) { showToast(err.message, 'error'); }
     }
 
@@ -120,10 +107,10 @@
       const badge = document.getElementById('mgmBal');
       try {
         const r = await apiClient.request('mgmpay.js', { action: 'payout_balance' });
-        badge.textContent = `MGM Pay: $${Number(r.data.available).toFixed(2)} avail`;
+        badge.textContent = `AfrStar: ₦${Number(r.data.available).toLocaleString()} avail`;
         badge.className = 'badge green';
       } catch (err) {
-        badge.textContent = 'MGM Pay: ERR';
+        badge.textContent = 'AfrStar: ERR';
         badge.className = 'badge red';
       }
     }
@@ -135,9 +122,6 @@
           settings: {
             deposit_gateway: document.getElementById('deposit_gateway').value,
             payout_gateway: document.getElementById('payout_gateway').value,
-            mgmpay_country: document.getElementById('mgmpay_country').value.trim() || 'NG',
-            mgmpay_deposit_method: document.getElementById('mgmpay_deposit_method').value.trim() || 'BANK_CARD',
-            mgmpay_deposit_flow: document.getElementById('mgmpay_deposit_flow').value
           }
         });
         showToast('Gateway settings saved.', 'success');
@@ -149,7 +133,7 @@
         const r = await apiClient.request('mgmpay.js', { action: 'get_bank_map' });
         const banks = r.data.banks || [];
         document.getElementById('mapWrap').innerHTML = `
-          <table class="admin-table"><thead><tr><th>Matches bank name containing</th><th>MGM Pay code</th><th>MGM Pay bank</th></tr></thead><tbody>
+          <table class="admin-table"><thead><tr><th>Matches bank name containing</th><th>AfrStar bank code</th><th>Bank name</th></tr></thead><tbody>
           ${banks.map(b => `<tr><td>${escapeHtml(b.match_name)}</td><td>${escapeHtml(b.mgmpay_code)}</td><td>${escapeHtml(b.mgmpay_name)}</td></tr>`).join('')}
           </tbody></table>`;
       } catch (err) {
