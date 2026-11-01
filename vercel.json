@@ -1,20 +1,165 @@
 {
   "version": 2,
-  "rewrites": [
+  "redirects": [
     {
-      "source": "/(.*)",
-      "destination": "/public/$1"
-    }
-  ],
-  "headers": [
+      "source": "/register.html",
+      "destination": "https://earner.yolotask.com.ng/register.php",
+      "statusCode": 301
+    },
     {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Credentials", "value": "true" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
-        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
-      ]
+      "source": "/register",
+      "destination": "https://earner.yolotask.com.ng/register.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/login.html",
+      "destination": "https://earner.yolotask.com.ng/login.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/login",
+      "destination": "https://earner.yolotask.com.ng/login.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/forgot-password.html",
+      "destination": "https://earner.yolotask.com.ng/forgot-password.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/privacy.html",
+      "destination": "https://yolotask.com.ng/privacy.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/terms.html",
+      "destination": "https://yolotask.com.ng/terms.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/refunds.html",
+      "destination": "https://yolotask.com.ng/refunds.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/notifications.html",
+      "destination": "https://earner.yolotask.com.ng/notifications.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/receipt.html",
+      "destination": "https://earner.yolotask.com.ng/wallet.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/dashboard.html",
+      "destination": "https://earner.yolotask.com.ng/dashboard.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/tasks.html",
+      "destination": "https://earner.yolotask.com.ng/tasks.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/task-details.html",
+      "destination": "https://earner.yolotask.com.ng/tasks.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/wallet.html",
+      "destination": "https://earner.yolotask.com.ng/wallet.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/referrals.html",
+      "destination": "https://earner.yolotask.com.ng/referrals.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/leaderboard.html",
+      "destination": "https://earner.yolotask.com.ng/leaderboard.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/my-submissions.html",
+      "destination": "https://earner.yolotask.com.ng/submissions.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/notifications.html",
+      "destination": "https://earner.yolotask.com.ng/notifications.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/profile.html",
+      "destination": "https://earner.yolotask.com.ng/account.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/earner/:path*",
+      "destination": "https://earner.yolotask.com.ng/dashboard.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/dashboard.html",
+      "destination": "https://advertiser.yolotask.com.ng/dashboard.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/campaigns.html",
+      "destination": "https://advertiser.yolotask.com.ng/campaigns.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/create-campaign.html",
+      "destination": "https://advertiser.yolotask.com.ng/campaign-new.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/submissions.html",
+      "destination": "https://advertiser.yolotask.com.ng/campaigns.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/wallet.html",
+      "destination": "https://advertiser.yolotask.com.ng/wallet.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/profile.html",
+      "destination": "https://advertiser.yolotask.com.ng/account.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/analytics.html",
+      "destination": "https://advertiser.yolotask.com.ng/campaigns.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/advertiser/:path*",
+      "destination": "https://advertiser.yolotask.com.ng/dashboard.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "https://admin.yolotask.com.ng/login.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/reviewer/:path*",
+      "destination": "https://reviewer.yolotask.com.ng/login.php",
+      "statusCode": 301
+    },
+    {
+      "source": "/",
+      "destination": "https://yolotask.com.ng/",
+      "statusCode": 301
+    },
+    {
+      "source": "/:path*",
+      "destination": "https://yolotask.com.ng/",
+      "statusCode": 301
     }
   ]
 }
